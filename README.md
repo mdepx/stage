@@ -20,6 +20,7 @@ font=xos4 Terminus:size=13
 Keyboard bindings:
 - Mod + Enter: open a terminal
 - Mod + m: maximize/unmaximize a terminal window vertically
+- Mod + 0..9: change workspace
 
 Mouse buttons:
 - Mod + Left Button: move window
