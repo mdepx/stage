@@ -25,3 +25,5 @@ Keyboard bindings:
 Mouse buttons:
 - Mod + Left Button: move window
 - Mod + Right Button: resize window
+
+![alt text](https://raw.githubusercontent.com/mdepx/stage/main/screenshots/stage.png)
