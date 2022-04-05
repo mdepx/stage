@@ -575,7 +575,8 @@ view_align(struct stage_view *view)
 
 	wlr_xdg_surface_get_geometry(view->xdg_surface, &geom);
 
-	printf("%s: view geoms %d %d %d %d\n", __func__, geom.x, geom.y, geom.width, geom.height);
+	printf("%s: view geoms %d %d %d %d\n", __func__, geom.x, geom.y,
+	    geom.width, geom.height);
 
 	view->w = geom.width;
 	view->h = geom.height;
@@ -1095,17 +1096,14 @@ static bool
 handle_keybinding(struct stage_server *server,
     struct wlr_keyboard_key_event *event, xkb_keysym_t sym)
 {
+	struct wlr_keyboard *kb;
 
 	if (server->locked)
 		return (false);
 
-	struct wlr_keyboard *kb;
 	kb = wlr_seat_get_keyboard(server->seat);
 
 	switch (sym) {
-	case XKB_KEY_Escape:
-		wl_display_terminate(server->wl_disp);
-		break;
 	case XKB_KEY_0:
 		changeworkspace(server, 0);
 		break;
@@ -1143,7 +1141,6 @@ handle_keybinding(struct stage_server *server,
 		maximize(server);
 		break;
 	case XKB_KEY_minus:
-		break;
 	case XKB_KEY_F1:
 		break;
 	case XKB_KEY_Return:
@@ -1187,10 +1184,12 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 		    modifiers);
 		if (modifiers & STAGE_MODIFIER)
 			for (int i = 0; i < nsyms; i++)
-				handled = handle_keybinding(server, event, syms[i]);
+				handled = handle_keybinding(server, event,
+				    syms[i]);
 		else
 			for (int i = 0; i < nsyms; i++)
-				handled = handle_keybinding2(server, event, syms[i]);
+				handled = handle_keybinding2(server, event,
+				    syms[i]);
 	}
 
 	if (!handled) {
