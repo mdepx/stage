@@ -1162,8 +1162,9 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 	struct stage_keyboard *keyboard;
 	struct wlr_keyboard *kb;
 	const xkb_keysym_t *syms;
+	xkb_keysym_t sym;
 	uint32_t keycode;
-	uint32_t modifiers;
+	uint32_t mods;
 	bool handled;
 	int nsyms;
 
@@ -1176,20 +1177,24 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 	keycode = event->keycode + 8;
 	nsyms = xkb_state_key_get_syms(kb->xkb_state, keycode, &syms);
 
+	assert(nsyms > 0);
+
+	/* TODO: Handle first sym only. */
+	sym = syms[0];
+
 	handled = false;
 
-	modifiers = wlr_keyboard_get_modifiers(kb);
+	mods = wlr_keyboard_get_modifiers(kb);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-		dbg_printf("%s: nsyms %d mods %x\n", __func__, nsyms,
-		    modifiers);
-		if (modifiers & STAGE_MODIFIER)
-			for (int i = 0; i < nsyms; i++)
-				handled = handle_keybinding(server, event,
-				    syms[i]);
+		dbg_printf("%s: nsyms %d mods %x\n", __func__, nsyms, mods);
+		if (mods == WLR_MODIFIER_SHIFT ||
+		    mods == WLR_MODIFIER_CTRL) {
+			if (sym == XKB_KEY_Return)
+				handled = true;
+		} else if (mods == STAGE_MODIFIER)
+			handled = handle_keybinding(server, event, sym);
 		else
-			for (int i = 0; i < nsyms; i++)
-				handled = handle_keybinding2(server, event,
-				    syms[i]);
+			handled = handle_keybinding2(server, event, sym);
 	}
 
 	if (!handled) {
