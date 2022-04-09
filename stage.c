@@ -220,6 +220,7 @@ static struct stage_workspace {
 } workspaces[N_WORKSPACES];
 
 static char terminal[] = "foot";
+#define TERMINAL_FONT_WIDTH 12
 
 struct stage_keyboard {
 	struct wl_list link;
@@ -1309,6 +1310,36 @@ server_new_input(struct wl_listener *listener, void *data)
 }
 
 static void
+init_slots(struct wlr_output *wlr_output)
+{
+	int i, w, h, tw;
+
+	w = wlr_output->width;
+	h = wlr_output->height;
+
+	tw = TERMINAL_FONT_WIDTH * 80 + 4;
+
+	for (i = 0; i < 4; i++) {
+		slots[i].w = tw > (w / 2) ? (w / 2) : tw;
+		slots[i].h = h / 2;
+	}
+
+	slots[0].x = w / 2;
+	slots[0].y = h / 2;
+
+	slots[1].x = tw > (w / 2) ? 0 : (w / 2) - tw;
+	slots[1].y = h / 2;
+
+	slots[2].x = w / 2;
+	slots[2].y = 0;
+
+	slots[3].x = tw > (w / 2) ? 0 : (w / 2) - tw;
+	slots[3].y = 0;
+
+	nslots += 4;
+}
+
+static void
 server_new_output(struct wl_listener *listener, void *data)
 {
 	struct wlr_output *wlr_output;
@@ -1341,31 +1372,7 @@ server_new_output(struct wl_listener *listener, void *data)
 	wl_list_insert(&server->outputs, &output->link);
 
 	wlr_output_layout_add_auto(server->output_layout, wlr_output);
-
-	int i, w, h, tw;
-
-	w = wlr_output->width;
-	h = wlr_output->height;
-	tw = 12 * 80 + 4;
-
-	for (i = 0; i < 4; i++) {
-		slots[i].w = tw > (w / 2) ? (w / 2) : tw;
-		slots[i].h = h / 2;
-	}
-
-	slots[0].x = w / 2;
-	slots[0].y = h / 2;
-
-	slots[1].x = tw > (w / 2) ? 0 : (w / 2) - tw;
-	slots[1].y = h / 2;
-
-	slots[2].x = w / 2;
-	slots[2].y = 0;
-
-	slots[3].x = tw > (w / 2) ? 0 : (w / 2) - tw;
-	slots[3].y = 0;
-
-	nslots += 4;
+	init_slots(wlr_output);
 }
 
 static void
