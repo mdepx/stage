@@ -1188,8 +1188,8 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 	mods = wlr_keyboard_get_modifiers(kb);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		dbg_printf("%s: nsyms %d mods %x\n", __func__, nsyms, mods);
-		if (mods == WLR_MODIFIER_SHIFT ||
-		    mods == WLR_MODIFIER_CTRL) {
+		if (mods == WLR_MODIFIER_CTRL) {
+			/* Ignore key binding. */
 			if (sym == XKB_KEY_Return)
 				handled = true;
 		} else if (mods == STAGE_MODIFIER)
