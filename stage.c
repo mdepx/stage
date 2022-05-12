@@ -1345,6 +1345,7 @@ server_new_output(struct wl_listener *listener, void *data)
 	struct wlr_output *wlr_output;
 	struct stage_output *output;
 	struct stage_server *server;
+	struct wlr_output_mode *mode;
 
 	printf("%s\n", __func__);
 
@@ -1353,8 +1354,21 @@ server_new_output(struct wl_listener *listener, void *data)
 	wlr_output = data;
 	wlr_output_init_render(wlr_output, server->allocator, server->renderer);
 
-	if (!wl_list_empty(&wlr_output->modes)) {
-		struct wlr_output_mode *mode;
+	mode = NULL;
+#if 0
+	wl_list_for_each(mode, &wlr_output->modes, link) {
+		printf("found mode %dx%d\n", mode->width, mode->height);
+		if (mode->width == 1920 && mode->height == 1080) {
+			wlr_output_set_mode(wlr_output, mode);
+			wlr_output_enable(wlr_output, true);
+			if (!wlr_output_commit(wlr_output))
+				return;
+			break;
+		}
+	}
+#endif
+
+	if (!wl_list_empty(&wlr_output->modes) && !mode) {
 		mode = wlr_output_preferred_mode(wlr_output);
 		wlr_output_set_mode(wlr_output, mode);
 		wlr_output_enable(wlr_output, true);
