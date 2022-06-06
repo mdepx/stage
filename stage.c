@@ -171,7 +171,7 @@ struct stage_view {
 	struct stage_server *server;
 	struct wlr_xdg_toplevel *xdg_toplevel;
 	struct wlr_xdg_surface *xdg_surface;
-	struct wlr_scene_node *scene_node;
+	struct wlr_scene_tree *scene_tree;
 	struct wl_listener map;
 	struct wl_listener unmap;
 	struct wl_listener destroy;
@@ -283,7 +283,7 @@ create_borders(struct stage_view *view)
 	int i;
 
 	for (i = 0; i < 4; i++)
-		view->rect[i] = wlr_scene_rect_create(view->scene_node, 0, 0,
+		view->rect[i] = wlr_scene_rect_create(view->scene_tree, 0, 0,
 		    color_default);
 }
 
@@ -308,7 +308,7 @@ update_borders(struct stage_view *view)
 	wlr_scene_node_set_position(&view->rect[3]->node, view->w - 1, 0);
 	wlr_scene_rect_set_size(view->rect[3], 1, view->h);
 
-	wlr_scene_node_set_position(view->scene_node, view->x, view->y);
+	wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
 
 #ifdef XWAYLAND
 	if (view_is_x11(view))
@@ -472,7 +472,10 @@ static struct stage_view *
 desktop_view_at(struct stage_server *server, double lx, double ly,
     struct wlr_surface **surface, double *sx, double *sy)
 {
+	struct wlr_scene_surface *scene_surface;
+	struct wlr_scene_buffer *scene_buffer;
 	struct wlr_scene_node *node;
+	struct wlr_scene_tree *tree;
 	struct stage_view *view;
 	struct stage_output *out;
 	struct stage_workspace *ws;
@@ -493,20 +496,26 @@ desktop_view_at(struct stage_server *server, double lx, double ly,
 #endif
 
 #if 1
-	node = wlr_scene_node_at(&server->scene->node, lx, ly, sx, sy);
+	node = wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
 	if (node == NULL)
 		return (NULL);
 
-	if (surface && node->type == WLR_SCENE_NODE_SURFACE)
-		*surface = wlr_scene_surface_from_node(node)->surface;
+	if (surface && node->type == WLR_SCENE_NODE_BUFFER) {
+		scene_buffer = wlr_scene_buffer_from_node(node);
+		scene_surface = wlr_scene_surface_from_buffer(scene_buffer);
 
-	while (node != NULL && node->data == NULL)
-		node = node->parent;
+		*surface = scene_surface->surface;
+	}
 
-	view = node->data;
+	tree = node->parent;
+
+	while (tree != NULL && tree->node.data == NULL)
+		tree = tree->node.parent;
+
+	view = tree->node.data;
+#endif
 
 	return (view);
-#endif
 }
 
 static const char *
@@ -690,11 +699,11 @@ slock_new_surface(struct wl_listener *listener, void *data)
 	view->destroy.notify = slock_destroy_view;
 	wl_signal_add(&lock_surface->events.destroy, &view->destroy);
 
-	surface = wlr_scene_surface_create(&server->scene->node,
+	/* TODO: destroy surface when not needed? */
+	surface = wlr_scene_surface_create(&server->scene->tree,
 	    lock_surface->surface);
-	view->scene_node = &surface->node;
-	view->scene_node->data = view;
-	view->lock_surface->data = view->scene_node;
+	view->scene_tree = NULL;
+	view->lock_surface->data = surface;
 
 	struct wlr_output *output;
 	struct stage_output *out;
@@ -847,7 +856,7 @@ changeworkspace(struct stage_server *server, int newws)
 
 	ws = &workspaces[oldws];
 	wl_list_for_each_safe(view, tmpview, &ws->views, link) {
-		wlr_scene_node_set_enabled(view->scene_node, false);
+		wlr_scene_node_set_enabled(&view->scene_tree->node, false);
 		if (view == focused_view)
 			view->was_focused = true;
 		else
@@ -862,7 +871,7 @@ changeworkspace(struct stage_server *server, int newws)
 
 	ws = &workspaces[newws];
 	wl_list_for_each_safe(view, tmpview, &ws->views, link) {
-		wlr_scene_node_set_enabled(view->scene_node, true);
+		wlr_scene_node_set_enabled(&view->scene_tree->node, true);
 		if (view->was_focused)
 			focus_view(view, view_surface(view));
 #ifdef XWAYLAND
@@ -1012,7 +1021,7 @@ maxvert(struct stage_server *server)
 	view->h = output->height;
 
 	update_borders(view);
-	wlr_scene_node_raise_to_top(view->scene_node);
+	wlr_scene_node_raise_to_top(&view->scene_tree->node);
 }
 
 static void
@@ -1066,7 +1075,7 @@ maximize(struct stage_server *server)
 	view->h = output->height;
 
 	update_borders(view);
-	wlr_scene_node_raise_to_top(view->scene_node);
+	wlr_scene_node_raise_to_top(&view->scene_tree->node);
 }
 
 static bool
@@ -1394,7 +1403,6 @@ xdg_toplevel_unmap(struct wl_listener *listener, void *data)
 {
 	struct stage_view *view;
 
-printf("%s\n", __func__);
 	view = wl_container_of(listener, view, unmap);
 
 	wl_list_remove(&view->link);
@@ -1405,7 +1413,6 @@ xdg_toplevel_request_move(struct wl_listener *listener, void *data)
 {
 	struct stage_view *view;
 
-printf("%s\n", __func__);
 	view = wl_container_of(listener, view, request_move);
 }
 
@@ -1414,7 +1421,6 @@ xdg_toplevel_destroy(struct wl_listener *listener, void *data)
 {
 	struct stage_view *view;
 
-printf("%s\n", __func__);
 	view = wl_container_of(listener, view, destroy);
 
 	wl_list_remove(&view->map.link);
@@ -1462,11 +1468,12 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 
 	xdg_surface = data;
 	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP) {
+		struct wlr_scene_tree *parent_tree;
 		parent = wlr_xdg_surface_from_wlr_surface(
 		    xdg_surface->popup->parent);
-		parent_node = parent->data;
+		parent_tree = parent->data;
 		xdg_surface->data = wlr_scene_xdg_surface_create(
-		    parent_node, xdg_surface);
+		    parent_tree, xdg_surface);
 		return;
 	}
 
@@ -1478,10 +1485,10 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	view->server = server;
 	view->xdg_surface = xdg_surface;
 	view->xdg_toplevel = xdg_surface->toplevel;
-	view->scene_node = wlr_scene_xdg_surface_create(
-	    &view->server->scene->node, view->xdg_toplevel->base);
-	view->scene_node->data = view;
-	xdg_surface->data = view->scene_node;
+	view->scene_tree = wlr_scene_xdg_surface_create(
+	    &view->server->scene->tree, view->xdg_toplevel->base);
+	view->scene_tree->node.data = view;
+	xdg_surface->data = view->scene_tree;
 
 	view->map.notify = xdg_toplevel_map;
 	wl_signal_add(&xdg_surface->events.map, &view->map);
@@ -1538,7 +1545,7 @@ process_cursor_move(struct stage_server *server, uint32_t time)
 	view = server->grabbed_view;
 	view->x = server->cursor->x - server->grab_x;
 	view->y = server->cursor->y - server->grab_y;
-	wlr_scene_node_set_position(view->scene_node, view->x, view->y);
+	wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
 }
 
 static void
@@ -1655,8 +1662,6 @@ server_cursor_button(struct wl_listener *listener, void *data)
 	if (server->locked)
 		return;
 
-printf("%s\n", __func__);
-
 	keyboard = wlr_seat_get_keyboard(server->seat);
 	event = data;
 
@@ -1682,7 +1687,7 @@ printf("%s\n", __func__);
 
 		if (event->button == BTN_LEFT) {
 			server->cursor_mode = STAGE_CURSOR_MOVE;
-			wlr_scene_node_raise_to_top(view->scene_node);
+			wlr_scene_node_raise_to_top(&view->scene_tree->node);
 		} else if (event->button == BTN_RIGHT) {
 			server->cursor_mode = STAGE_CURSOR_RESIZE;
 
@@ -1943,7 +1948,7 @@ main(int argc, char *argv[])
 	server.scene = wlr_scene_create();
 	wlr_scene_attach_output_layout(server.scene, server.output_layout);
 
-	server.xdg_shell = wlr_xdg_shell_create(server.wl_disp);
+	server.xdg_shell = wlr_xdg_shell_create(server.wl_disp, 3);
 	server.new_xdg_surface.notify = server_new_xdg_surface;
 	wl_signal_add(&server.xdg_shell->events.new_surface,
 	    &server.new_xdg_surface);
