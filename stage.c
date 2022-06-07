@@ -362,7 +362,6 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 	struct wlr_keyboard *kb;
 	struct wlr_seat *seat;
 	struct stage_view *prev_view;
-	struct wlr_xwayland_surface *s;
 
 	if (view == NULL)
 		return;
@@ -719,7 +718,6 @@ output_manager_test(struct wl_listener *listener, void *data)
 static struct stage_view *
 view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 {
-	struct wlr_xwayland_surface *xwayland_surface;
 	struct wlr_xdg_surface *xdg_surface;
 	struct wlr_scene_node *scene_node;
 	struct stage_view *view;
