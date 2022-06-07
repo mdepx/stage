@@ -8,8 +8,6 @@ Note this depends on development version of wlroots.
 
 All the features supported you can find reading the code. If you don't want to read code, this WM is not for you.
 
-This supports xwayland, but I'm about to drop it.
-
 The main reason for this WM is to define memory regions (slots) where a new terminal window appears once opened.
 
 The width limit of a terminal window is enforced: it is 80 characters per Linux/FreeBSD code style guides. Configure this in the stage.c for your font size.

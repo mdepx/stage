@@ -69,11 +69,6 @@
 #include <wlr/util/log.h>
 #include <xkbcommon/xkbcommon.h>
 
-#ifdef XWAYLAND
-#include <X11/Xlib.h>
-#include <wlr/xwayland.h>
-#endif
-
 #define dbg_printf(args...)
 
 static const float color_focused[] = { 0.8, 0.4, 0.0, 0.0 };
@@ -123,12 +118,6 @@ struct stage_server {
 	uint32_t resize_edges;
 	double cur_saved_x;
 	double cur_saved_y;
-
-#ifdef XWAYLAND
-	struct wlr_xwayland *xwayland;
-	struct wl_listener xwayland_ready;
-	struct wl_listener xwayland_new_surface;
-#endif
 
 	int current_layout;
 
@@ -187,12 +176,6 @@ struct stage_view {
 
 	struct wlr_session_lock_surface_v1 *lock_surface;
 
-#ifdef XWAYLAND
-	struct wl_listener activate;
-	struct wl_listener configure;
-	struct wlr_xwayland_surface *xwayland_surface;
-#endif
-
 	enum stage_view_type type;
 	bool slot_set;
 };
@@ -238,22 +221,6 @@ struct stage_lock {
 	struct wl_listener destroy;
 	struct stage_server *server;
 };
-
-#ifdef XWAYLAND
-static bool
-view_is_x11(struct stage_view *view)
-{
-
-	switch (view->type) {
-	case VIEW_X11:
-		return (true);
-	default:
-		break;
-	}
-
-	return (false);
-}
-#endif
 
 static bool
 view_is_slock(struct stage_view *view)
@@ -309,14 +276,7 @@ update_borders(struct stage_view *view)
 	wlr_scene_rect_set_size(view->rect[3], 1, view->h);
 
 	wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
-
-#ifdef XWAYLAND
-	if (view_is_x11(view))
-		wlr_xwayland_surface_configure(
-		    view->xwayland_surface, view->x, view->y, view->w, view->h);
-	else
-#endif
-		wlr_xdg_toplevel_set_size(view->xdg_toplevel, view->w, view->h);
+	wlr_xdg_toplevel_set_size(view->xdg_toplevel, view->w, view->h);
 }
 
 static struct stage_output *
@@ -347,14 +307,6 @@ static void
 view_geometry(struct stage_view *view, struct wlr_box *geom)
 {
 
-#ifdef XWAYLAND
-	if (view_is_x11(view)) {
-		geom->x = view->xwayland_surface->x;
-		geom->y = view->xwayland_surface->y;
-		geom->width = view->xwayland_surface->width;
-		geom->height = view->xwayland_surface->height;
-	} else
-#endif
 	if (view->type == VIEW_SLOCK) {
 		geom->x = 0;
 		geom->y = 0;
@@ -390,11 +342,6 @@ view_surface(struct stage_view *view)
 	case VIEW_XDG:
 		surface = view->xdg_surface->surface;
 		break;
-#ifdef XWAYLAND
-	case VIEW_X11:
-		surface = view->xwayland_surface->surface;
-		break;
-#endif
 	case VIEW_SLOCK:
 		surface = view->lock_surface->surface;
 		break;
@@ -436,32 +383,17 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 		return;
 
 	if (prev_surface) {
-#ifdef XWAYLAND
-		if (wlr_surface_is_xwayland_surface(prev_surface)) {
-			s = wlr_xwayland_surface_from_wlr_surface(prev_surface);
-			wlr_xwayland_surface_activate(s, false);
-			scene_node = s->data;
-		} else
-#endif
-		{
-			previous =
-			    wlr_xdg_surface_from_wlr_surface(prev_surface);
-			assert(previous->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
-			wlr_xdg_toplevel_set_activated(previous->toplevel,
-			    false);
-			scene_node = previous->data;
-		}
+		previous =
+		    wlr_xdg_surface_from_wlr_surface(prev_surface);
+		assert(previous->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
+		wlr_xdg_toplevel_set_activated(previous->toplevel,
+		    false);
+		scene_node = previous->data;
 		prev_view = scene_node->data;
 		view_set_borders_active(prev_view, false);
 	}
 
-#ifdef XWAYLAND
-	if (wlr_surface_is_xwayland_surface(surface)) {
-		s = wlr_xwayland_surface_from_wlr_surface(surface);
-		wlr_xwayland_surface_activate(s, true);
-	} else
-#endif
-		wlr_xdg_toplevel_set_activated(view->xdg_toplevel, true);
+	wlr_xdg_toplevel_set_activated(view->xdg_toplevel, true);
 
 	wlr_seat_keyboard_notify_enter(seat, view_surface(view),
 	    kb->keycodes, kb->num_keycodes, &kb->modifiers);
@@ -522,12 +454,6 @@ static const char *
 get_app_id(struct stage_view *view)
 {
 	const char *res;
-
-#ifdef XWAYLAND
-	if (view_is_x11(view))
-		res = view->xwayland_surface->class;
-	else
-#endif
 
 	res = view->xdg_surface->toplevel->app_id;
 
@@ -600,6 +526,7 @@ xdg_toplevel_map(struct wl_listener *listener, void *data)
 	struct stage_workspace *curws;
 	struct stage_output *out;
 	struct stage_view *view;
+	struct wlr_box geom;
 
 	view = wl_container_of(listener, view, map);
 
@@ -616,24 +543,9 @@ xdg_toplevel_map(struct wl_listener *listener, void *data)
 	if (view->slot_set == false)
 		view_align(view);
 
-	struct wlr_scene_surface *surface;
-	struct wlr_box geom;
-
 	view_geometry(view, &geom);
 	view->w = geom.width;
 	view->h = geom.height;
-
-#if XWAYLAND
-	if (view_is_x11(view)) {
-		view_set_slot(view);
-		surface = wlr_scene_surface_create(&view->server->scene->node,
-		    view->xwayland_surface->surface);
-		view->scene_node = &surface->node;
-		view->scene_node->data = view;
-		view->xwayland_surface->data = view->scene_node;
-		create_borders(view);
-	}
-#endif
 
 	if (view->type == VIEW_SLOCK)
 		return;
@@ -812,17 +724,8 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 	struct wlr_scene_node *scene_node;
 	struct stage_view *view;
 
-#ifdef XWAYLAND
-	if (wlr_surface_is_xwayland_surface(surface)) {
-		xwayland_surface =
-		    wlr_xwayland_surface_from_wlr_surface(surface);
-		scene_node = xwayland_surface->data;
-	} else
-#endif
-	{
-		xdg_surface = wlr_xdg_surface_from_wlr_surface(surface);
-		scene_node = xdg_surface->data;
-	}
+	xdg_surface = wlr_xdg_surface_from_wlr_surface(surface);
+	scene_node = xdg_surface->data;
 
 	view = scene_node->data;
 
@@ -861,12 +764,6 @@ changeworkspace(struct stage_server *server, int newws)
 			view->was_focused = true;
 		else
 			view->was_focused = false;
-
-#ifdef XWAYLAND
-		if (view_is_x11(view))
-			wlr_xwayland_surface_configure(
-			    view->xwayland_surface, view->x, view->y, 1, 1);
-#endif
 	}
 
 	ws = &workspaces[newws];
@@ -874,11 +771,6 @@ changeworkspace(struct stage_server *server, int newws)
 		wlr_scene_node_set_enabled(&view->scene_tree->node, true);
 		if (view->was_focused)
 			focus_view(view, view_surface(view));
-#ifdef XWAYLAND
-		if (view_is_x11(view))
-			wlr_xwayland_surface_configure(view->xwayland_surface,
-			    view->x, view->y, view->w, view->h);
-#endif
 	}
 }
 
@@ -1427,13 +1319,6 @@ xdg_toplevel_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&view->unmap.link);
 	wl_list_remove(&view->destroy.link);
 
-#ifdef XWAYLAND
-	if (view_is_x11(view)) {
-		wl_list_remove(&view->activate.link);
-		wl_list_remove(&view->configure.link);
-	} else
-#endif
-
 	wl_list_remove(&view->request_move.link);
 	wl_list_remove(&view->request_resize.link);
 
@@ -1787,118 +1672,6 @@ seat_request_set_primary_selection(struct wl_listener *listener, void *data)
 	    event->serial);
 }
 
-#ifdef XWAYLAND
-void
-commit(struct wl_listener *listener, void *data)
-{
-
-	printf("%s\n", __func__);
-}
-
-void
-activate(struct wl_listener *listener, void *data)
-{
-	struct stage_view *view;
-
-	view = wl_container_of(listener, view, activate);
-
-	printf("%s\n", __func__);
-
-	printf("%s: surface %p\n", __func__, view->xwayland_surface->surface);
-	if (view_is_x11(view))
-		wlr_xwayland_surface_activate(view->xwayland_surface, 1);
-}
-
-void
-configure(struct wl_listener *listener, void *data)
-{
-	struct stage_view *view;
-	struct wlr_xwayland_surface_configure_event *event;
-
-	view = wl_container_of(listener, view, configure);
-
-	event = data;
-
-	printf("%s: surface %p\n", __func__, view->xwayland_surface->surface);
-
-	printf("%s: view %p, %d %d %d %d\n", __func__, view,
-	    event->x, event->y, event->width, event->height);
-
-	wlr_xwayland_surface_configure(view->xwayland_surface, event->x,
-	    event->y, event->width, event->height);
-}
-
-static void
-xwayland_ready(struct wl_listener *listener, void *data)
-{
-	struct stage_server *server;
-
-	server = wl_container_of(listener, server, xwayland_ready);
-
-	printf("%s\n", __func__);
-
-	wlr_xwayland_set_seat(server->xwayland, server->seat);
-}
-
-void
-xwayland_new_surface(struct wl_listener *listener, void *data)
-{
-	struct wlr_xwayland_surface *xwayland_surface;
-	struct stage_server *server;
-	struct stage_view *view;
-
-	printf("%s\n", __func__);
-
-	server = wl_container_of(listener, server, xwayland_new_surface);
-
-	xwayland_surface = data;
-
-	view = malloc(sizeof(struct stage_view));
-	memset(view, 0, sizeof(struct stage_view));
-	view->type = VIEW_X11;
-	view->server = server;
-	view->xwayland_surface = xwayland_surface;
-
-	view->map.notify = xdg_toplevel_map;
-	wl_signal_add(&xwayland_surface->events.map, &view->map);
-
-	view->unmap.notify = xdg_toplevel_unmap;
-	wl_signal_add(&xwayland_surface->events.unmap, &view->unmap);
-
-	view->destroy.notify = xdg_toplevel_destroy;
-	wl_signal_add(&xwayland_surface->events.destroy, &view->destroy);
-
-	view->activate.notify = activate;
-	wl_signal_add(&xwayland_surface->events.request_activate,
-	    &view->activate);
-
-	view->configure.notify = configure;
-	wl_signal_add(&xwayland_surface->events.request_configure,
-	    &view->configure);
-
-	printf("%s: surface %p\n", __func__, view->xwayland_surface->surface);
-
-#if 0
-	view->commit.notify = commit;
-	wl_signal_add(&xwayland_surface->events.commit,
-	    &view->commit);
-#endif
-
-	return;
-
-	struct wlr_scene_surface *surface;
-
-	printf("%s 1: surf %p\n", __func__, xwayland_surface->surface);
-	//wl_signal_init(&xwayland_surface->surface->events.destroy);
-	//wl_signal_init(&xwayland_surface->surface->events.commit);
-	surface = wlr_scene_surface_create(&server->scene->node,
-	    xwayland_surface->surface);
-	printf("%s 2\n", __func__);
-
-	//view->scene_node = &surface->node;
-}
-#endif
-
 int
 main(int argc, char *argv[])
 {
@@ -2010,23 +1783,6 @@ main(int argc, char *argv[])
 	    wlr_server_decoration_manager_create(server.wl_disp),
 	    WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
 	wlr_xdg_decoration_manager_v1_create(server.wl_disp);
-
-#ifdef XWAYLAND
-	server.xwayland = wlr_xwayland_create(server.wl_disp,
-	    server.compositor, 1);
-	if (server.xwayland) {
-		server.xwayland_ready.notify = xwayland_ready;
-		wl_signal_add(&server.xwayland->events.ready,
-		    &server.xwayland_ready);
-
-		server.xwayland_new_surface.notify = xwayland_new_surface;
-		wl_signal_add(&server.xwayland->events.new_surface,
-		    &server.xwayland_new_surface);
-
-		setenv("DISPLAY", server.xwayland->display_name, 1);
-	} else
-		exit(55);
-#endif
 
 	server.lock = wlr_session_lock_manager_v1_create(server.wl_disp);
 	server.new_lock.notify = new_lock;
