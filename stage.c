@@ -1636,7 +1636,7 @@ seat_request_cursor(struct wl_listener *listener, void *data)
 	server = wl_container_of(listener, server, request_cursor);
 
 	wlr_xcursor_manager_set_cursor_image(server->cursor_mgr,
-	    "woman", server->cursor);
+	    "left_ptr", server->cursor);
 }
 
 static void
