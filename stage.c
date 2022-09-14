@@ -1137,7 +1137,7 @@ server_new_keyboard(struct stage_server *server,
 	keyboard = malloc(sizeof(struct stage_keyboard));
 	keyboard->server = server;
 	keyboard->device = device;
-	kb = device->keyboard;
+	kb = wlr_keyboard_from_input_device(device);
 
 	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 	keymap = xkb_keymap_new_from_names(context, NULL,
