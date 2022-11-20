@@ -71,8 +71,8 @@
 
 #define dbg_printf(args...)
 
-static const float color_focused[] = { 0.8, 0.4, 0.0, 0.0 };
-static const float color_default[] = { 0.4, 0.4, 0.4, 0.0 };
+static const float color_focused[] = { 0.8, 0.4, 0.1, 0.1 };
+static const float color_default[] = { 0.4, 0.4, 0.4, 0.1 };
 
 enum stage_cursor_mode {
 	STAGE_CURSOR_PASSTHROUGH,
