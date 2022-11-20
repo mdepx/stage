@@ -1683,7 +1683,7 @@ main(int argc, char *argv[])
 	memset(&server, 0, sizeof(struct stage_server));
 
 	server.wl_disp = wl_display_create();
-	server.backend = wlr_backend_autocreate(server.wl_disp);
+	server.backend = wlr_backend_autocreate(server.wl_disp, NULL);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
 
