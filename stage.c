@@ -383,7 +383,8 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 
 	if (prev_surface) {
 		previous =
-		    wlr_xdg_surface_from_wlr_surface(prev_surface);
+		    wlr_xdg_surface_try_from_wlr_surface(prev_surface);
+		assert(previous != NULL);
 		assert(previous->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
 		wlr_xdg_toplevel_set_activated(previous->toplevel,
 		    false);
@@ -433,7 +434,9 @@ desktop_view_at(struct stage_server *server, double lx, double ly,
 
 	if (surface && node->type == WLR_SCENE_NODE_BUFFER) {
 		scene_buffer = wlr_scene_buffer_from_node(node);
-		scene_surface = wlr_scene_surface_from_buffer(scene_buffer);
+		scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
+		if (scene_surface == NULL)
+			return (NULL);
 
 		*surface = scene_surface->surface;
 	}
@@ -722,7 +725,9 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 	struct wlr_scene_node *scene_node;
 	struct stage_view *view;
 
-	xdg_surface = wlr_xdg_surface_from_wlr_surface(surface);
+	xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
+	assert(xdg_surface != NULL);
+
 	scene_node = xdg_surface->data;
 
 	view = scene_node->data;
@@ -1352,8 +1357,9 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	xdg_surface = data;
 	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP) {
 		struct wlr_scene_tree *parent_tree;
-		parent = wlr_xdg_surface_from_wlr_surface(
+		parent = wlr_xdg_surface_try_from_wlr_surface(
 		    xdg_surface->popup->parent);
+		assert(parent != NULL);
 		parent_tree = parent->data;
 		xdg_surface->data = wlr_scene_xdg_surface_create(
 		    parent_tree, xdg_surface);
@@ -1683,7 +1689,7 @@ main(int argc, char *argv[])
 	memset(&server, 0, sizeof(struct stage_server));
 
 	server.wl_disp = wl_display_create();
-	server.backend = wlr_backend_autocreate(server.wl_disp);
+	server.backend = wlr_backend_autocreate(server.wl_disp, 0);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
 
