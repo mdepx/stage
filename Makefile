@@ -22,6 +22,9 @@ wlr-layer-shell-unstable-v1-protocol.h:
 	${WL_SCANNER} server-header ${WLR_LAYER_SHELL} $@
 
 run:
+	mkdir -p /tmp/wl
+	sudo chmod 0777 /var/run/seatd.sock
+	sudo chmod 0777 /dev/dri/card0 /dev/dri/renderD128
 	ssh-agent ./stage
 
 clean:
