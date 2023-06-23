@@ -609,7 +609,7 @@ slock_new_surface(struct wl_listener *listener, void *data)
 	view->lock_surface = lock_surface;
 
 	view->map.notify = slock_map_view;
-	wl_signal_add(&lock_surface->events.map, &view->map);
+	wl_signal_add(&lock_surface->surface->events.map, &view->map);
 	view->destroy.notify = slock_destroy_view;
 	wl_signal_add(&lock_surface->events.destroy, &view->destroy);
 
@@ -1380,11 +1380,11 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	xdg_surface->data = view->scene_tree;
 
 	view->map.notify = xdg_toplevel_map;
-	wl_signal_add(&xdg_surface->events.map, &view->map);
+	wl_signal_add(&xdg_surface->surface->events.map, &view->map);
 	view->unmap.notify = xdg_toplevel_unmap;
-	wl_signal_add(&xdg_surface->events.unmap, &view->unmap);
+	wl_signal_add(&xdg_surface->surface->events.unmap, &view->unmap);
 	view->destroy.notify = xdg_toplevel_destroy;
-	wl_signal_add(&xdg_surface->events.destroy, &view->destroy);
+	wl_signal_add(&xdg_surface->surface->events.destroy, &view->destroy);
 
 	toplevel = xdg_surface->toplevel;
 	view->request_move.notify = xdg_toplevel_request_move;
@@ -1695,7 +1695,7 @@ main(int argc, char *argv[])
 
 	server.allocator = wlr_allocator_autocreate(server.backend,
 	    server.renderer);
-	server.compositor = wlr_compositor_create(server.wl_disp,
+	server.compositor = wlr_compositor_create(server.wl_disp, 5,
 	    server.renderer);
 
 	wlr_export_dmabuf_manager_v1_create(server.wl_disp);
