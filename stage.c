@@ -66,13 +66,22 @@
 #include <wlr/types/wlr_xdg_decoration_v1.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/types/wlr_text_input_v3.h>
 #include <wlr/util/log.h>
 #include <xkbcommon/xkbcommon.h>
+
+#include <stdio.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <string.h>
+#include <unistd.h>
 
 #define dbg_printf(args...)
 
 static const float color_focused[] = { 0.8, 0.4, 0.1, 0.1 };
 static const float color_default[] = { 0.4, 0.4, 0.4, 0.1 };
+
+#define	SERVER_SOCK_FILE	"/tmp/stage.sock"
 
 enum stage_cursor_mode {
 	STAGE_CURSOR_PASSTHROUGH,
@@ -200,10 +209,11 @@ static int nslots = 0;
 
 static struct stage_workspace {
 	struct wl_list views;
+	int index;
 } workspaces[N_WORKSPACES];
 
 static char terminal[] = "foot";
-#define TERMINAL_FONT_WIDTH 12
+#define TERMINAL_FONT_WIDTH 15
 
 struct stage_keyboard {
 	struct wl_list link;
@@ -236,12 +246,52 @@ view_is_slock(struct stage_view *view)
 	return (false);
 }
 
+static struct stage_output *
+output_at(struct stage_server *server, double x, double y)
+{
+	struct wlr_output *o;
+
+	o = wlr_output_layout_output_at(server->output_layout, x, y);
+	if (o)
+		return (o->data);
+
+	return (NULL);
+}
+
+static struct stage_output *
+cursor_at(struct stage_server *server)
+{
+	struct stage_output *out;
+
+	out = output_at(server, server->cursor->x, server->cursor->y);
+
+	assert(out != NULL);
+
+	return (out);
+}
+
 void
 new_layer_shell_surface(struct wl_listener *listener, void *data)
 {
+	struct wlr_layer_surface_v1 *layer_surface;
+	struct wlr_scene_surface *surface;
+	struct wlr_output *output;
+	struct stage_server *server;
+	struct stage_output *out;
 
-	printf("%s\n", __func__);
-	exit(55);
+	dbg_printf("%s\n", __func__);
+
+	layer_surface = data;
+	server = wl_container_of(listener, server, new_layer_shell_surface);
+
+	out = cursor_at(server);
+
+	layer_surface->output = out->wlr_output;
+
+	wlr_layer_surface_v1_configure(layer_surface, 200, 200);
+
+	surface = wlr_scene_surface_create(&server->scene->tree,
+		layer_surface->surface);
 }
 
 static void
@@ -277,30 +327,6 @@ update_borders(struct stage_view *view)
 
 	wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
 	wlr_xdg_toplevel_set_size(view->xdg_toplevel, view->w, view->h);
-}
-
-static struct stage_output *
-output_at(struct stage_server *server, double x, double y)
-{
-	struct wlr_output *o;
-
-	o = wlr_output_layout_output_at(server->output_layout, x, y);
-	if (o)
-		return (o->data);
-
-	return (NULL);
-}
-
-static struct stage_output *
-cursor_at(struct stage_server *server)
-{
-	struct stage_output *out;
-
-	out = output_at(server, server->cursor->x, server->cursor->y);
-
-	assert(out != NULL);
-
-	return (out);
 }
 
 static void
@@ -445,6 +471,9 @@ desktop_view_at(struct stage_server *server, double lx, double ly,
 
 	while (tree != NULL && tree->node.data == NULL)
 		tree = tree->node.parent;
+
+	if (tree == NULL)
+		return (NULL);
 
 	view = tree->node.data;
 #endif
@@ -738,6 +767,29 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 }
 
 static void
+notify_ws_daemon(int ws)
+{
+	struct sockaddr_un addr;
+	char send_msg[16];
+	int error;
+	int fd;
+
+	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
+		return;
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strcpy(addr.sun_path, SERVER_SOCK_FILE);
+
+	sprintf(send_msg, "%d", ws);
+
+	sendto(fd, send_msg, strlen(send_msg), 0, (struct sockaddr *)&addr,
+	   sizeof(struct sockaddr_un));
+
+	close(fd);
+}
+
+static void
 changeworkspace(struct stage_server *server, int newws)
 {
 	struct stage_workspace *ws;
@@ -749,6 +801,9 @@ changeworkspace(struct stage_server *server, int newws)
 	int oldws;
 
 	out = cursor_at(server);
+	if (out->curws == newws)
+		return;
+
 	oldws = out->curws;
 	out->curws = newws;
 
@@ -775,6 +830,8 @@ changeworkspace(struct stage_server *server, int newws)
 		if (view->was_focused)
 			focus_view(view, view_surface(view));
 	}
+
+	notify_ws_daemon(ws->index);
 }
 
 static void
@@ -997,6 +1054,28 @@ handle_keybinding2(struct stage_server *server,
 	return (true);
 }
 
+static void
+switch_light(char *arg)
+{
+	int pid;
+
+	pid = fork();
+	if (pid == 0)
+		execl("/usr/local/bin/python3.10",
+		    "/usr/local/bin/python3.10",
+		    "/home/br/lights/test_client.py", arg, NULL);
+}
+
+static void
+switch_mode(char *arg)
+{
+	int pid;
+
+	pid = fork();
+	if (pid == 0)
+		execl("/home/br/eizo/eizo", "/home/br/eizo/eizo", arg, NULL);
+}
+
 static bool
 handle_keybinding(struct stage_server *server,
     struct wlr_keyboard_key_event *event, xkb_keysym_t sym)
@@ -1046,7 +1125,24 @@ handle_keybinding(struct stage_server *server,
 		maximize(server);
 		break;
 	case XKB_KEY_minus:
-	case XKB_KEY_F1:
+		break;
+	case XKB_KEY_q:
+		switch_light("0");
+		break;
+	case XKB_KEY_w:
+		switch_light("1");
+		break;
+	case XKB_KEY_e:
+		switch_light("2");
+		break;
+	case XKB_KEY_r:
+		switch_light("3");
+		break;
+	case XKB_KEY_a:
+		switch_mode("0");
+		break;
+	case XKB_KEY_s:
+		switch_mode("1");
 		break;
 	case XKB_KEY_Return:
 		if (fork() == 0)
@@ -1698,6 +1794,9 @@ main(int argc, char *argv[])
 	server.compositor = wlr_compositor_create(server.wl_disp, 5,
 	    server.renderer);
 
+#if 0
+	wlr_text_input_manager_v3_create(server.wl_disp);
+#endif
 	wlr_export_dmabuf_manager_v1_create(server.wl_disp);
 	wlr_screencopy_manager_v1_create(server.wl_disp);
 	wlr_data_control_manager_v1_create(server.wl_disp);
@@ -1764,8 +1863,10 @@ main(int argc, char *argv[])
 	server.cursor_frame.notify = server_cursor_frame;
 	wl_signal_add(&server.cursor->events.frame, &server.cursor_frame);
 
-	for (i = 0; i < N_WORKSPACES; i++)
+	for (i = 0; i < N_WORKSPACES; i++) {
 		wl_list_init(&workspaces[i].views);
+		workspaces[i].index = i;
+	}
 
 	wl_list_init(&server.keyboards);
 	server.new_input.notify = server_new_input;
@@ -1792,15 +1893,14 @@ main(int argc, char *argv[])
 	server.new_lock.notify = new_lock;
 	wl_signal_add(&server.lock->events.new_lock, &server.new_lock);
 
-#if 0
-	server.shell = wlr_layer_shell_v1_create(server.wl_disp);
+	server.shell = wlr_layer_shell_v1_create(server.wl_disp, 4);
 	server.new_layer_shell_surface.notify = new_layer_shell_surface;
 	wl_signal_add(&server.shell->events.new_surface,
 	    &server.new_layer_shell_surface);
 
+#if 0
 	server.inhibit_manager =
 	    wlr_input_inhibit_manager_create(server.wl_disp);
-
 	server.idle = wlr_idle_create(server.wl_disp);
 #endif
 
