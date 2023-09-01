@@ -15,13 +15,9 @@
 
 static pixman_color_t fg = {0xffff, 0xffff, 0xffff, 0xffff};
 static pixman_color_t bg = {0x0000, 0x0000, 0x0000, 0xffff};
-static pixman_color_t mg = {0x5555, 0x5555, 0x5555, 0xffff};
+static pixman_color_t mg = {0x4444, 0x4444, 0x4444, 0xffff};
+static pixman_color_t og = {0x9999, 0x9999, 0x9999, 0xffff};
 
-static int prev_ws = -1;
-static int prev_prev_ws = -1;
-
-#define	MAX_WIDTH	200
-#define	MAX_HEIGHT	120
 #define	SERVER_SOCK_FILE	"/tmp/stage.sock"
 
 struct ws_surface {
@@ -205,22 +201,69 @@ ws_flush(struct ws *app)
 		printf("wl_display_roundtrip failed");
 }
 
+static void
+draw_numbers(struct ws *app, char *buf)
+{
+	uint8_t c;
+	int ws;
+	int i;
+	int voffs;
+	int oldflag;
+	int newflag;
+
+	i = 0;
+	voffs = 100;
+	oldflag = newflag = 0;
+
+	ws_image_clear(app->image, &bg);
+
+	while (1) {
+		c = (uint8_t)buf[i++];
+		if (c == '\0')
+			break;
+
+		if (c == '?') {
+			oldflag = 1;
+			continue;
+		}
+
+		if (c == '!') {
+			newflag = 1;
+			continue;
+		}
+
+		ws = atoi(&c);
+		printf("c %c ws %d\n", c, ws);
+		if (newflag) {
+			ws_image_draw(app->image, &fg, ws, 50, voffs);
+			newflag = 0;
+		} else if (oldflag) {
+			ws_image_draw(app->image, &og, ws, 50, voffs);
+			oldflag = 0;
+		} else
+			ws_image_draw(app->image, &mg, ws, 50, voffs);
+		voffs += 120;
+	}
+
+	ws_flush(app);
+}
+
 int
 ws_listen_sock(struct ws *app)
 {
 	struct sockaddr_un addr;
 	struct sockaddr_un from;
 	socklen_t fromlen;
-	char buf[8192];
+	char buf[128];
 	int len;
 	int fd;
-	int ws;
 
 	fromlen = sizeof(struct sockaddr_un);
 
 	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
 		perror("socket");
 
+	memset(buf, 0, 128);
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	strcpy(addr.sun_path, SERVER_SOCK_FILE);
@@ -232,21 +275,8 @@ ws_listen_sock(struct ws *app)
 	do {
 		len = recvfrom(fd, buf, 8192, 0, (struct sockaddr *)&from,
 		    &fromlen);
-		/* printf("recvfrom: %s\n", buf); */
-		ws = atoi(buf);
-		if (prev_prev_ws >= 0) {
-			ws_image_draw(app->image, &bg, prev_prev_ws, 50, 0);
-		}
-		if (prev_ws >= 0) {
-			ws_image_draw(app->image, &bg, prev_ws, 100, 0);
-			ws_image_draw(app->image, &mg, prev_ws, 50, 0);
-		}
-		ws_image_draw(app->image, &fg, ws, 100, 0);
-
-		ws_flush(app);
-
-		prev_prev_ws = prev_ws;
-		prev_ws = ws;
+		printf("recvfrom: %s, len %d\n", buf, len);
+		draw_numbers(app, buf);
 	} while (len > 0);
 
 	close(fd);

@@ -124,6 +124,17 @@ ws_font_init(void)
 }
 
 void
+ws_image_clear(struct ws_image *image, pixman_color_t *color)
+{
+	pixman_image_t *pixman;
+
+	pixman = image->pixman;
+
+	pixman_image_fill_rectangles(PIXMAN_OP_SRC, pixman, color, 1,
+	    &(pixman_rectangle16_t){0, 0, MAX_WIDTH, MAX_HEIGHT});
+}
+
+void
 ws_image_draw(struct ws_image *image, pixman_color_t *color,
     int ws, int offset_x, int offset_y)
 {
