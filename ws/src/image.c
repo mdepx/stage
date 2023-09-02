@@ -98,7 +98,7 @@ ws_image_create(size_t width, size_t height)
 	image->stride = width * 4;
 	image->pixman = pixman;
 
-	return image;
+	return (image);
 }
 
 void
@@ -118,6 +118,7 @@ ws_font_init(void)
 	char **names;
 	char *copy;
 	char *name;
+	size_t len;
 	size_t i;
 
 	/* Instantiate font, and fallbacks. */
@@ -130,7 +131,7 @@ ws_font_init(void)
 		while (isspace(*name))
 			name++;
 
-		size_t len = strlen(name);
+		len = strlen(name);
 		while (len > 0 && isspace(name[len - 1]))
 			name[--len] = '\0';
 		tll_push_back(font_names, name);
