@@ -18,8 +18,6 @@ static pixman_color_t bg = {0x0000, 0x0000, 0x0000, 0xffff};
 static pixman_color_t mg = {0x4444, 0x4444, 0x4444, 0xffff};
 static pixman_color_t og = {0x9999, 0x9999, 0x9999, 0xffff};
 
-#define	SERVER_SOCK_FILE	"/tmp/stage.sock"
-
 struct ws_surface {
 	struct zwlr_layer_surface_v1 *wlr_layer_surface;
 	struct wl_surface *wl_surface;
@@ -204,12 +202,13 @@ ws_flush(struct ws *app)
 static void
 draw_numbers(struct ws *app, char *buf)
 {
-	uint8_t c;
-	int ws;
-	int i;
-	int voffs;
+	static pixman_color_t *color;
 	int oldflag;
 	int newflag;
+	int voffs;
+	int ws;
+	int i;
+	char c;
 
 	i = 0;
 	voffs = 100;
@@ -218,7 +217,8 @@ draw_numbers(struct ws *app, char *buf)
 	ws_image_clear(app->image, &bg);
 
 	while (1) {
-		c = (uint8_t)buf[i++];
+		c = buf[i++];
+
 		if (c == '\0')
 			break;
 
@@ -232,16 +232,21 @@ draw_numbers(struct ws *app, char *buf)
 			continue;
 		}
 
-		ws = atoi(&c);
-		printf("c %c ws %d\n", c, ws);
+		ws = strtol(&c, NULL, 10);
+
+		/* printf("c %c ws %d\n", c, ws); */
+
 		if (newflag) {
-			ws_image_draw(app->image, &fg, ws, 50, voffs);
+			color = &fg;
 			newflag = 0;
 		} else if (oldflag) {
-			ws_image_draw(app->image, &og, ws, 50, voffs);
+			color = &og;
 			oldflag = 0;
 		} else
-			ws_image_draw(app->image, &mg, ws, 50, voffs);
+			color = &mg;
+
+		ws_image_draw(app->image, color, ws, 50, voffs);
+
 		voffs += 120;
 	}
 
@@ -249,7 +254,7 @@ draw_numbers(struct ws *app, char *buf)
 }
 
 int
-ws_listen_sock(struct ws *app)
+ws_main_loop(struct ws *app)
 {
 	struct sockaddr_un addr;
 	struct sockaddr_un from;
@@ -275,7 +280,7 @@ ws_listen_sock(struct ws *app)
 	do {
 		len = recvfrom(fd, buf, 8192, 0, (struct sockaddr *)&from,
 		    &fromlen);
-		printf("recvfrom: %s, len %d\n", buf, len);
+		/* printf("recvfrom: %s, len %d\n", buf, len); */
 		draw_numbers(app, buf);
 	} while (len > 0);
 
@@ -361,7 +366,7 @@ ws_startup(void)
 		return (-1);
 	}
 
-	ws_listen_sock(app);
+	ws_main_loop(app);
 
 	zwlr_layer_shell_v1_destroy(app->wlr_layer_shell);
 	wl_buffer_destroy(app->wl_buffer);

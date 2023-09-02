@@ -90,9 +90,9 @@ void
 ws_font_init(void)
 {
 	char **names;
-	size_t idx;
 	char *copy;
 	char *name;
+	size_t i;
 
 	/* Instantiate font, and fallbacks. */
 	tll(const char *)font_names = tll_init();
@@ -110,10 +110,10 @@ ws_font_init(void)
 		tll_push_back(font_names, name);
 	}
 
-	idx = 0;
+	i = 0;
 	names = malloc(sizeof (char *) * tll_length(font_names));
 	tll_foreach(font_names, it)
-		names[idx++] = (char *)it->item;
+		names[i++] = (char *)it->item;
 
 	font = fcft_from_name(tll_length(font_names), (const char **)names,
 	    NULL);
@@ -139,39 +139,28 @@ ws_image_draw(struct ws_image *image, pixman_color_t *color,
     int ws, int offset_x, int offset_y)
 {
 	pixman_image_t *pixman;
-	const struct fcft_glyph *glyphs[32];
 	const struct fcft_glyph *g;
 	pixman_image_t *clr_pix;
-	int x, y;
 	char c;
-	int i;
-
-	pixman = image->pixman;
-
-	i = 0;
 
 	c = '0' + ws;
 
-	clr_pix = pixman_image_create_solid_fill(color);
-
-	glyphs[i] = fcft_rasterize_char_utf32(font, c, subpixel_mode);
-	if (glyphs[i] == NULL)
+	g = fcft_rasterize_char_utf32(font, c, subpixel_mode);
+	if (g == NULL)
 		return;
 
-	g = glyphs[i];
-
-	x = offset_x;
-	y = offset_y;
+	pixman = image->pixman;
 
 	if (pixman_image_get_format(g->pix) == PIXMAN_a8r8g8b8) {
 		pixman_image_composite32(
 			PIXMAN_OP_OVER, g->pix, NULL, pixman, 0, 0, 0, 0,
-			x + g->x, y + font->ascent - g->y, g->width,
-			    g->height);
+			offset_x + g->x, offset_y + font->ascent - g->y,
+			    g->width, g->height);
 	} else {
+		clr_pix = pixman_image_create_solid_fill(color);
 		pixman_image_composite32(
 			PIXMAN_OP_OVER, clr_pix, g->pix, pixman, 0, 0, 0, 0,
-			x + g->x, y + font->ascent - g->y, g->width,
-			    g->height);
-        }
+			offset_x + g->x, offset_y + font->ascent - g->y,
+			    g->width, g->height);
+	}
 }

@@ -1,8 +1,9 @@
 #ifndef _IMAGE_H_
 #define _IMAGE_H_
 
-#define	MAX_WIDTH	200
-#define	MAX_HEIGHT	1000
+#define	MAX_WIDTH		200
+#define	MAX_HEIGHT		1000
+#define	SERVER_SOCK_FILE	"/tmp/stage.sock"
 
 struct ws_image {
 	size_t width;
