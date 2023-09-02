@@ -102,6 +102,7 @@ struct stage_server {
 	struct wlr_xdg_shell *xdg_shell;
 	struct wlr_output_layout *output_layout;
 	struct wl_list outputs;
+	struct wlr_scene_output_layout *scene_layout;
 
 	struct wlr_cursor *cursor;
 	struct wlr_input_device *device;
@@ -412,8 +413,9 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 		    wlr_xdg_surface_try_from_wlr_surface(prev_surface);
 		assert(previous != NULL);
 		assert(previous->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
-		wlr_xdg_toplevel_set_activated(previous->toplevel,
-		    false);
+		if (previous->toplevel != NULL)
+			wlr_xdg_toplevel_set_activated(previous->toplevel,
+			    false);
 		scene_node = previous->data;
 		prev_view = scene_node->data;
 		view_set_borders_active(prev_view, false);
@@ -877,7 +879,7 @@ output_frame(struct wl_listener *listener, void *data)
 
 	scene = output->server->scene;
 	scene_output = wlr_scene_get_scene_output(scene, output->wlr_output);
-	wlr_scene_output_commit(scene_output);
+	wlr_scene_output_commit(scene_output, NULL);
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	wlr_scene_output_send_frame_done(scene_output, &now);
@@ -1372,9 +1374,12 @@ static void
 server_new_output(struct wl_listener *listener, void *data)
 {
 	struct wlr_output *wlr_output;
+	struct wlr_output_layout_output *l_output;
+	struct wlr_output_state state;
+	struct wlr_output_mode *mode;
+	struct wlr_scene_output *scene_output;
 	struct stage_output *output;
 	struct stage_server *server;
-	struct wlr_output_mode *mode;
 
 	printf("%s\n", __func__);
 
@@ -1382,6 +1387,9 @@ server_new_output(struct wl_listener *listener, void *data)
 
 	wlr_output = data;
 	wlr_output_init_render(wlr_output, server->allocator, server->renderer);
+
+	wlr_output_state_init(&state);
+	wlr_output_state_set_enabled(&state, true);
 
 	mode = NULL;
 #if 0
@@ -1414,8 +1422,16 @@ server_new_output(struct wl_listener *listener, void *data)
 	wl_signal_add(&wlr_output->events.frame, &output->frame);
 	wl_list_insert(&server->outputs, &output->link);
 
-	wlr_output_layout_add_auto(server->output_layout, wlr_output);
+	l_output = wlr_output_layout_add_auto(server->output_layout,
+	    wlr_output);
+	scene_output = wlr_scene_output_create(server->scene, wlr_output);
+	wlr_scene_output_layout_add_output(server->scene_layout, l_output,
+	    scene_output);
+
 	init_slots(wlr_output);
+
+	wlr_output_commit_state(wlr_output, &state);
+	wlr_output_state_finish(&state);
 }
 
 static void
@@ -1615,8 +1631,8 @@ process_cursor_motion(struct stage_server *server, uint32_t time)
 	view = desktop_view_at(server, server->cursor->x, server->cursor->y,
 	    &surface, &sx, &sy);
 	if (!view)
-		wlr_xcursor_manager_set_cursor_image(server->cursor_mgr,
-		    "left_ptr", server->cursor);
+		wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr,
+		    "left_ptr");
 
 	if (surface) {
 		wlr_seat_pointer_notify_motion(seat, time, sx, sy);
@@ -1766,8 +1782,7 @@ seat_request_cursor(struct wl_listener *listener, void *data)
 
 	server = wl_container_of(listener, server, request_cursor);
 
-	wlr_xcursor_manager_set_cursor_image(server->cursor_mgr,
-	    "left_ptr", server->cursor);
+	wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "left_ptr");
 }
 
 static void
@@ -1851,6 +1866,8 @@ main(int argc, char *argv[])
 	wl_signal_add(&server.backend->events.new_output, &server.new_output);
 
 	server.scene = wlr_scene_create();
+	server.scene_layout = wlr_scene_attach_output_layout(server.scene,
+	    server.output_layout);
 	wlr_scene_attach_output_layout(server.scene, server.output_layout);
 
 	server.xdg_shell = wlr_xdg_shell_create(server.wl_disp, 3);
