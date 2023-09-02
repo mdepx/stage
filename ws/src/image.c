@@ -165,8 +165,8 @@ void
 ws_image_draw(struct ws_image *image, pixman_color_t *color,
     int ws, int offset_x, int offset_y)
 {
-	pixman_image_t *pixman;
 	const struct fcft_glyph *g;
+	pixman_image_t *pixman;
 	pixman_image_t *clr_pix;
 	char c;
 
@@ -181,13 +181,13 @@ ws_image_draw(struct ws_image *image, pixman_color_t *color,
 	if (pixman_image_get_format(g->pix) == PIXMAN_a8r8g8b8) {
 		pixman_image_composite32(
 			PIXMAN_OP_OVER, g->pix, NULL, pixman, 0, 0, 0, 0,
-			offset_x + g->x, offset_y + font->ascent - g->y,
+			    offset_x + g->x, offset_y + font->ascent - g->y,
 			    g->width, g->height);
 	} else {
 		clr_pix = pixman_image_create_solid_fill(color);
 		pixman_image_composite32(
 			PIXMAN_OP_OVER, clr_pix, g->pix, pixman, 0, 0, 0, 0,
-			offset_x + g->x, offset_y + font->ascent - g->y,
+			    offset_x + g->x, offset_y + font->ascent - g->y,
 			    g->width, g->height);
 	}
 }
