@@ -771,39 +771,41 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 static void
 notify_ws_daemon(int oldws, int newws)
 {
+	struct stage_workspace *ws;
 	struct sockaddr_un addr;
-	struct stage_view *view, *tmpview;
 	char send_msg[16];
-	int error;
-	int fd;
-	int i;
 	char str[32];
 	char *cur;
+	int error;
 	int count;
+	int fd;
+	int i;
 
 	memset(str, 0, 32);
 
 	cur = str;
 
-	struct stage_workspace *ws;
-	for (i = 0; i < N_WORKSPACES; i++) {
+	/* Start from workspace 1. End with workspace 0. */
+	i = 1;
+	do {
+		if (i == N_WORKSPACES)
+			i = 0;
+
 		ws = &workspaces[i];
-		if (newws == i) {
+		if (i == newws) {
 			snprintf(cur, 3, "!%d", i);
 			cur += 2;
-		} else {
-			wl_list_for_each_safe(view, tmpview, &ws->views, link) {
-				if (oldws == i) {
-					snprintf(cur, 3, "?%d", i);
-					cur += 2;
-				} else {
-					snprintf(cur, 2, "%d", i);
-					cur += 1;
-				}
-				break;
+		} else if (!wl_list_empty(&ws->views)) {
+			if (i == oldws) {
+				snprintf(cur, 3, "?%d", i);
+				cur += 2;
+			} else {
+				snprintf(cur, 2, "%d", i);
+				cur += 1;
 			}
 		}
-	}
+
+	} while (i++);
 
 	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
 		return;
