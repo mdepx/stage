@@ -219,6 +219,7 @@ static char terminal[] = "foot";
 struct stage_keyboard {
 	struct wl_list link;
 	struct stage_server *server;
+	struct wlr_keyboard *wlr_keyboard;
 	struct wlr_input_device *device;
 	struct wl_listener modifiers;
 	struct wl_listener key;
@@ -1067,9 +1068,6 @@ static bool
 handle_keybinding2(struct stage_server *server,
     struct wlr_keyboard_key_event *event, xkb_keysym_t sym)
 {
-	struct wlr_keyboard *kb;
-
-	kb = wlr_seat_get_keyboard(server->seat);
 
 	switch (sym) {
 	case XKB_KEY_Alt_R:
@@ -1113,12 +1111,9 @@ static bool
 handle_keybinding(struct stage_server *server,
     struct wlr_keyboard_key_event *event, xkb_keysym_t sym)
 {
-	struct wlr_keyboard *kb;
 
 	if (server->locked)
 		return (false);
-
-	kb = wlr_seat_get_keyboard(server->seat);
 
 	switch (sym) {
 	case XKB_KEY_0:
@@ -1248,15 +1243,11 @@ static void
 keyboard_handle_modifiers(struct wl_listener *listener, void *data)
 {
 	struct stage_keyboard *keyboard;
-	struct wlr_keyboard *kb;
 
 	keyboard = wl_container_of(listener, keyboard, modifiers);
-	kb = wlr_seat_get_keyboard(keyboard->server->seat);
-
-	kb = wlr_seat_get_keyboard(keyboard->server->seat);
-	wlr_seat_set_keyboard(keyboard->server->seat, kb);
+	wlr_seat_set_keyboard(keyboard->server->seat, keyboard->wlr_keyboard);
 	wlr_seat_keyboard_notify_modifiers(keyboard->server->seat,
-	    &kb->modifiers);
+	    &keyboard->wlr_keyboard->modifiers);
 }
 
 static void
@@ -1272,9 +1263,15 @@ server_new_keyboard(struct stage_server *server,
 	keyboard->server = server;
 	keyboard->device = device;
 	kb = wlr_keyboard_from_input_device(device);
+	keyboard->wlr_keyboard = kb;
 
 	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-	keymap = xkb_keymap_new_from_names(context, NULL,
+
+	struct xkb_rule_names rules;
+	memset(&rules, 0, sizeof(struct xkb_rule_names));
+	rules.layout = "us,ru";
+
+	keymap = xkb_keymap_new_from_names(context, &rules,
 	    XKB_KEYMAP_COMPILE_NO_FLAGS);
 
 	wlr_keyboard_set_keymap(kb, keymap);
