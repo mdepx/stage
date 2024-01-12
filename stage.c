@@ -341,7 +341,7 @@ view_geometry(struct stage_view *view, struct wlr_box *geom)
 		//geom->width = 100;
 		//geom->height = 100;
 	} else
-		wlr_xdg_surface_get_geometry(view->xdg_surface, geom);
+		wlr_xdg_surface_get_geometry(view->xdg_toplevel->base, geom);
 }
 
 static void
@@ -368,7 +368,7 @@ view_surface(struct stage_view *view)
 
 	switch (view->type) {
 	case VIEW_XDG:
-		surface = view->xdg_surface->surface;
+		surface = view->xdg_toplevel->base->surface;
 		break;
 	case VIEW_SLOCK:
 		surface = view->lock_surface->surface;
@@ -489,7 +489,7 @@ get_app_id(struct stage_view *view)
 {
 	const char *res;
 
-	res = view->xdg_surface->toplevel->app_id;
+	res = view->xdg_toplevel->app_id;
 
 	return (res);
 }
@@ -543,7 +543,7 @@ view_align(struct stage_view *view)
 	out = cursor_at(view->server);
 	output = out->wlr_output;
 
-	wlr_xdg_surface_get_geometry(view->xdg_surface, &geom);
+	wlr_xdg_surface_get_geometry(view->xdg_toplevel->base, &geom);
 
 	printf("%s: view geoms %d %d %d %d\n", __func__, geom.x, geom.y,
 	    geom.width, geom.height);
@@ -1259,6 +1259,8 @@ server_new_keyboard(struct stage_server *server,
 	struct xkb_context *context;
 	struct xkb_keymap *keymap;
 
+	printf("%s\n", __func__);
+
 	keyboard = malloc(sizeof(struct stage_keyboard));
 	keyboard->server = server;
 	keyboard->device = device;
@@ -1485,52 +1487,39 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 {
 	struct wlr_xdg_surface *xdg_surface;
 	struct wlr_xdg_surface *parent;
-	struct wlr_xdg_toplevel *toplevel;
+	struct wlr_xdg_toplevel *xdg_toplevel;
 	struct wlr_scene_node *parent_node;
 	struct stage_server *server;
 	struct stage_view *view;
 
-	server = wl_container_of(listener, server, new_xdg_surface);
-
 	printf("%s\n", __func__);
 
-	xdg_surface = data;
-	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP) {
-		struct wlr_scene_tree *parent_tree;
-		parent = wlr_xdg_surface_try_from_wlr_surface(
-		    xdg_surface->popup->parent);
-		assert(parent != NULL);
-		parent_tree = parent->data;
-		xdg_surface->data = wlr_scene_xdg_surface_create(
-		    parent_tree, xdg_surface);
-		return;
-	}
-
-	assert(xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
+	server = wl_container_of(listener, server, new_xdg_surface);
+	xdg_toplevel = data;
 
 	view = malloc(sizeof(struct stage_view));
 	memset(view, 0, sizeof(struct stage_view));
 	view->type = VIEW_XDG;
 	view->server = server;
-	view->xdg_surface = xdg_surface;
-	view->xdg_toplevel = xdg_surface->toplevel;
+	view->xdg_toplevel = xdg_toplevel;
 	view->scene_tree = wlr_scene_xdg_surface_create(
-	    &view->server->scene->tree, view->xdg_toplevel->base);
+	    &view->server->scene->tree, xdg_toplevel->base);
 	view->scene_tree->node.data = view;
-	xdg_surface->data = view->scene_tree;
+	xdg_toplevel->base->data = view->scene_tree;
 
 	view->map.notify = xdg_toplevel_map;
-	wl_signal_add(&xdg_surface->surface->events.map, &view->map);
+	wl_signal_add(&xdg_toplevel->base->surface->events.map, &view->map);
 	view->unmap.notify = xdg_toplevel_unmap;
-	wl_signal_add(&xdg_surface->surface->events.unmap, &view->unmap);
+	wl_signal_add(&xdg_toplevel->base->surface->events.unmap, &view->unmap);
 	view->destroy.notify = xdg_toplevel_destroy;
-	wl_signal_add(&xdg_surface->surface->events.destroy, &view->destroy);
+	wl_signal_add(&xdg_toplevel->events.destroy, &view->destroy);
 
-	toplevel = xdg_surface->toplevel;
 	view->request_move.notify = xdg_toplevel_request_move;
-	wl_signal_add(&toplevel->events.request_move, &view->request_move);
+	wl_signal_add(&xdg_toplevel->events.request_move,
+	    &view->request_move);
 	view->request_resize.notify = xdg_toplevel_request_resize;
-	wl_signal_add(&toplevel->events.request_resize, &view->request_resize);
+	wl_signal_add(&xdg_toplevel->events.request_resize,
+	    &view->request_resize);
 
 	create_borders(view);
 	view_set_slot(view);
@@ -1854,7 +1843,7 @@ main(int argc, char *argv[])
 	wl_signal_add(&server.activation->events.request_activate,
 	    &server.request_activate);
 
-	server.output_layout = wlr_output_layout_create();
+	server.output_layout = wlr_output_layout_create(server.wl_disp);
 	server.layout_change.notify = layout_change;
 	wl_signal_add(&server.output_layout->events.change,
 	    &server.layout_change);
@@ -1867,11 +1856,10 @@ main(int argc, char *argv[])
 	server.scene = wlr_scene_create();
 	server.scene_layout = wlr_scene_attach_output_layout(server.scene,
 	    server.output_layout);
-	wlr_scene_attach_output_layout(server.scene, server.output_layout);
 
 	server.xdg_shell = wlr_xdg_shell_create(server.wl_disp, 3);
 	server.new_xdg_surface.notify = server_new_xdg_surface;
-	wl_signal_add(&server.xdg_shell->events.new_surface,
+	wl_signal_add(&server.xdg_shell->events.new_toplevel,
 	    &server.new_xdg_surface);
 
 	server.output_manager = wlr_output_manager_v1_create(server.wl_disp);
@@ -1884,7 +1872,6 @@ main(int argc, char *argv[])
 
 	server.presentation = wlr_presentation_create(server.wl_disp,
 	    server.backend);
-	wlr_scene_set_presentation(server.scene, server.presentation);
 
 	server.cursor = wlr_cursor_create();
 	wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
