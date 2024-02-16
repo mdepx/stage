@@ -491,6 +491,8 @@ get_app_id(struct stage_view *view)
 
 	res = view->xdg_toplevel->app_id;
 
+printf("res %s\n", res);
+
 	return (res);
 }
 
@@ -1406,6 +1408,7 @@ server_new_output(struct wl_listener *listener, void *data)
 	}
 #endif
 
+#if 0
 	if (!wl_list_empty(&wlr_output->modes) && !mode) {
 		mode = wlr_output_preferred_mode(wlr_output);
 		wlr_output_set_mode(wlr_output, mode);
@@ -1413,6 +1416,15 @@ server_new_output(struct wl_listener *listener, void *data)
 		if (!wlr_output_commit(wlr_output))
 			return;
 	}
+#endif
+
+	mode = wlr_output_preferred_mode(wlr_output);
+	if (mode != NULL)
+		wlr_output_state_set_mode(&state, mode);
+
+	/* Atomically applies the new output state. */
+	wlr_output_commit_state(wlr_output, &state);
+	wlr_output_state_finish(&state);
 
 	output = malloc(sizeof(struct stage_output));
 	output->curws = 0; /* TODO */
@@ -1430,9 +1442,6 @@ server_new_output(struct wl_listener *listener, void *data)
 	    scene_output);
 
 	init_slots(wlr_output);
-
-	wlr_output_commit_state(wlr_output, &state);
-	wlr_output_state_finish(&state);
 }
 
 static void
@@ -1496,6 +1505,7 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 
 	server = wl_container_of(listener, server, new_xdg_surface);
 	xdg_toplevel = data;
+	printf("%s: app_id %s\n", __func__, xdg_toplevel->app_id);
 
 	view = malloc(sizeof(struct stage_view));
 	memset(view, 0, sizeof(struct stage_view));
@@ -1541,7 +1551,7 @@ server_cursor_axis(struct wl_listener *listener, void *data)
 
 	wlr_seat_pointer_notify_axis(server->seat,
 	    event->time_msec, event->orientation, event->delta,
-	    event->delta_discrete, event->source);
+	    event->delta_discrete, event->source, event->relative_direction);
 }
 
 static void
@@ -1817,7 +1827,7 @@ main(int argc, char *argv[])
 	memset(&server, 0, sizeof(struct stage_server));
 
 	server.wl_disp = wl_display_create();
-	server.backend = wlr_backend_autocreate(server.wl_disp, 0);
+	server.backend = wlr_backend_autocreate(wl_display_get_event_loop(server.wl_disp), 0);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
 
