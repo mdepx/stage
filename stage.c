@@ -176,6 +176,7 @@ struct stage_view {
 	struct wl_listener destroy;
 	struct wl_listener request_move;
 	struct wl_listener request_resize;
+	struct wl_listener set_app_id;
 	struct wl_listener commit;
 	int x, y, w, h;
 	int sx, sy, sw, sh;	/* saved */
@@ -491,8 +492,6 @@ get_app_id(struct stage_view *view)
 
 	res = view->xdg_toplevel->app_id;
 
-printf("res %s\n", res);
-
 	return (res);
 }
 
@@ -511,7 +510,7 @@ view_set_slot(struct stage_view *view)
 
 	v = NULL;
 
-	printf("app id %s\n", app_id);
+	dbg_printf("app id %s\n", app_id);
 
 	if (strcmp(app_id, "foot") == 0 ||
 	    strcmp(app_id, "XTerm") == 0 ||
@@ -1492,6 +1491,21 @@ xdg_toplevel_request_resize(struct wl_listener *listener, void *data)
 }
 
 static void
+handle_set_app_id(struct wl_listener *listener, void *data)
+{
+	struct stage_view *view;
+	char *app_id;
+
+	view = wl_container_of(listener, view, set_app_id);
+
+	app_id = view->xdg_toplevel->app_id;
+
+	create_borders(view);
+	view_set_slot(view);
+	update_borders(view);
+}
+
+static void
 server_new_xdg_surface(struct wl_listener *listener, void *data)
 {
 	struct wlr_xdg_surface *xdg_surface;
@@ -1531,9 +1545,9 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	wl_signal_add(&xdg_toplevel->events.request_resize,
 	    &view->request_resize);
 
-	create_borders(view);
-	view_set_slot(view);
-	update_borders(view);
+	view->set_app_id.notify = handle_set_app_id;
+	wl_signal_add(&xdg_toplevel->events.set_app_id,
+	    &view->set_app_id);
 }
 
 static void
