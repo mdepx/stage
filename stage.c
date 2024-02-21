@@ -98,6 +98,7 @@ struct stage_server {
 	struct wlr_presentation *presentation;
 	struct wl_listener new_output;
 	struct wl_listener new_xdg_surface;
+	struct wl_listener new_xdg_popup;
 	struct wlr_xdg_shell *xdg_shell;
 	struct wlr_output_layout *output_layout;
 	struct wl_list outputs;
@@ -223,6 +224,12 @@ struct stage_keyboard {
 	struct wlr_input_device *device;
 	struct wl_listener modifiers;
 	struct wl_listener key;
+	struct wl_listener destroy;
+};
+
+struct stage_popup {
+	struct wlr_xdg_popup *xdg_popup;
+	struct wl_listener commit;
 	struct wl_listener destroy;
 };
 
@@ -1569,6 +1576,57 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 }
 
 static void
+xdg_popup_commit(struct wl_listener *listener, void *data)
+{
+	struct stage_popup *popup;
+
+	popup = wl_container_of(listener, popup, commit);
+	if (popup->xdg_popup->base->initial_commit)
+		wlr_xdg_surface_schedule_configure(popup->xdg_popup->base);
+}
+
+static void
+xdg_popup_destroy(struct wl_listener *listener, void *data)
+{
+	struct stage_popup *popup;
+
+	popup = wl_container_of(listener, popup, destroy);
+
+	wl_list_remove(&popup->commit.link);
+	wl_list_remove(&popup->destroy.link);
+
+	free(popup);
+}
+
+static void
+server_new_xdg_popup(struct wl_listener *listener, void *data)
+{
+	struct wlr_xdg_popup *xdg_popup;
+	struct wlr_xdg_surface *parent;
+	struct stage_popup *popup;
+
+	xdg_popup = data;
+
+	popup = calloc(1, sizeof(*popup));
+	popup->xdg_popup = xdg_popup;
+
+	parent = wlr_xdg_surface_try_from_wlr_surface(xdg_popup->parent);
+	assert(parent != NULL);
+
+	struct wlr_scene_tree *parent_tree;
+
+	parent_tree = parent->data;
+        xdg_popup->base->data = wlr_scene_xdg_surface_create(parent_tree,
+	    xdg_popup->base);
+
+	popup->commit.notify = xdg_popup_commit;
+	wl_signal_add(&xdg_popup->base->surface->events.commit, &popup->commit);
+
+	popup->destroy.notify = xdg_popup_destroy;
+	wl_signal_add(&xdg_popup->events.destroy, &popup->destroy);
+}
+
+static void
 server_cursor_axis(struct wl_listener *listener, void *data)
 {
 	struct wlr_pointer_axis_event *event;
@@ -1905,6 +1963,10 @@ main(int argc, char *argv[])
 	server.new_xdg_surface.notify = server_new_xdg_surface;
 	wl_signal_add(&server.xdg_shell->events.new_toplevel,
 	    &server.new_xdg_surface);
+
+	server.new_xdg_popup.notify = server_new_xdg_popup;
+	wl_signal_add(&server.xdg_shell->events.new_popup,
+	    &server.new_xdg_popup);
 
 	server.output_manager = wlr_output_manager_v1_create(server.wl_disp);
 	server.output_manager_apply.notify = output_manager_apply;
