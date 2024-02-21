@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2023 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2023-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,7 +44,7 @@ static struct fcft_font *font = NULL;
 static enum fcft_subpixel subpixel_mode = FCFT_SUBPIXEL_DEFAULT;
 
 struct ws_image *
-ws_image_create(size_t width, size_t height)
+ws_image_create(char *name, size_t width, size_t height)
 {
 	char shm_name[NAME_MAX];
 	struct ws_image *image;
@@ -58,7 +58,7 @@ ws_image_create(size_t width, size_t height)
 	size = width * height * 8;
 
 	for (i = 0; i < UCHAR_MAX; ++i) {
-		if (snprintf(shm_name, NAME_MAX, "/ws-%d", i) >= NAME_MAX)
+		if (snprintf(shm_name, NAME_MAX, "/%s-%d", name, i) >= NAME_MAX)
 			break;
 
 		shmid = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, 0600);
@@ -151,26 +151,24 @@ ws_font_init(void)
 }
 
 void
-ws_image_clear(struct ws_image *image, pixman_color_t *color)
+ws_image_clear(struct ws_image *image, pixman_color_t *color, int x, int y,
+    int w, int h)
 {
 	pixman_image_t *pixman;
 
 	pixman = image->pixman;
 
 	pixman_image_fill_rectangles(PIXMAN_OP_SRC, pixman, color, 1,
-	    &(pixman_rectangle16_t){0, 0, MAX_WIDTH, MAX_HEIGHT});
+	    &(pixman_rectangle16_t){x, y, w, h});
 }
 
 void
 ws_image_draw(struct ws_image *image, pixman_color_t *color,
-    int ws, int offset_x, int offset_y)
+    char c, int offset_x, int offset_y)
 {
 	const struct fcft_glyph *g;
 	pixman_image_t *pixman;
 	pixman_image_t *clr_pix;
-	char c;
-
-	c = '0' + ws;
 
 	g = fcft_rasterize_char_utf32(font, c, subpixel_mode);
 	if (g == NULL)

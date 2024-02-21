@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2023 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2023-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,8 +27,8 @@
 #ifndef _IMAGE_H_
 #define _IMAGE_H_
 
-#define	MAX_WIDTH		200
-#define	MAX_HEIGHT		1000
+#define	MAX_WIDTH		250
+#define	MAX_HEIGHT		1920
 #define	SERVER_SOCK_FILE	"/tmp/stage.sock"
 
 struct ws_image {
@@ -40,11 +40,12 @@ struct ws_image {
 	void *pixman;
 };
 
-struct ws_image *ws_image_create(size_t width, size_t height);
+struct ws_image *ws_image_create(char *name, size_t width, size_t height);
 void ws_image_destroy(struct ws_image *image);
-void ws_image_draw(struct ws_image *image, pixman_color_t *color, int ws,
+void ws_image_draw(struct ws_image *image, pixman_color_t *color, char c,
     int offset_x, int offset_y);
 void ws_font_init(void);
-void ws_image_clear(struct ws_image *image, pixman_color_t *color);
+void ws_image_clear(struct ws_image *image, pixman_color_t *color, int x,
+    int y, int w, int h);
 
 #endif /* !_IMAGE_H_ */

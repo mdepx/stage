@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2023 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2023-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,6 +43,7 @@ static pixman_color_t fg = {0xffff, 0xffff, 0xffff, 0xffff};
 static pixman_color_t bg = {0x0000, 0x0000, 0x0000, 0xffff};
 static pixman_color_t mg = {0x4444, 0x4444, 0x4444, 0xffff};
 static pixman_color_t og = {0x9999, 0x9999, 0x9999, 0xffff};
+static pixman_color_t xy = {0x1fff, 0x1fff, 0x1fff, 0xffff};
 
 struct ws_surface {
 	struct zwlr_layer_surface_v1 *wlr_layer_surface;
@@ -64,6 +65,14 @@ struct ws {
 	struct wl_registry *wl_registry;
 	struct wl_shm *wl_shm;
 	struct zwlr_layer_shell_v1 *wlr_layer_shell;
+	char *name;
+	int margin_top;
+	int margin_right;
+	int margin_bottom;
+	int margin_left;
+	int width;
+	int height;
+	int anchor;
 };
 
 void
@@ -90,10 +99,6 @@ struct ws_surface *
 ws_surface_create(struct ws *app, struct wl_output *wl_output)
 {
 	struct ws_surface *ws_surface;
-	int width, height;
-
-	width = MAX_WIDTH;
-	height = MAX_HEIGHT;
 
 	ws_surface = calloc(1, sizeof(struct ws_surface));
 	if (ws_surface == NULL) {
@@ -117,14 +122,13 @@ ws_surface_create(struct ws *app, struct wl_output *wl_output)
 		return (NULL);
 	}
 
-#if 0
 	zwlr_layer_surface_v1_set_margin(ws_surface->wlr_layer_surface,
-	    margin_top, margin_right, margin_bottom, margin_left);
-#endif
-
+	    app->margin_top, app->margin_right, app->margin_bottom,
+	    app->margin_left);
 	zwlr_layer_surface_v1_set_size(ws_surface->wlr_layer_surface,
-	    width, height);
-	zwlr_layer_surface_v1_set_anchor(ws_surface->wlr_layer_surface, 0);
+	    app->width, app->height);
+	zwlr_layer_surface_v1_set_anchor(ws_surface->wlr_layer_surface,
+	    app->anchor);
 	zwlr_layer_surface_v1_add_listener(ws_surface->wlr_layer_surface,
 	    &zwlr_layer_surface_listener, app);
 
@@ -226,6 +230,39 @@ ws_flush(struct ws *app)
 }
 
 static void
+draw_cursor_xy(struct ws *app, char *buf)
+{
+	static pixman_color_t *color;
+	int voffs;
+	int ws;
+	int i;
+	char c;
+
+	i = 0;
+	voffs = 0;
+
+	ws_image_clear(app->image, &bg, 150, 0, app->width-150, app->height);
+
+	while (1) {
+		c = buf[i++];
+
+		if (c == '\0')
+			break;
+
+		color = &xy;
+
+		if (c == ',')
+			ws_image_draw(app->image, color, ' ', 150, voffs);
+		else
+			ws_image_draw(app->image, color, c, 150, voffs);
+
+		voffs += 120;
+	}
+
+	ws_flush(app);
+}
+
+static void
 draw_numbers(struct ws *app, char *buf)
 {
 	static pixman_color_t *color;
@@ -235,12 +272,13 @@ draw_numbers(struct ws *app, char *buf)
 	int ws;
 	int i;
 	char c;
+	char c1;
 
 	i = 0;
 	voffs = 100;
 	oldflag = newflag = 0;
 
-	ws_image_clear(app->image, &bg);
+	ws_image_clear(app->image, &bg, 0, 0, 150, app->height);
 
 	while (1) {
 		c = buf[i++];
@@ -271,7 +309,8 @@ draw_numbers(struct ws *app, char *buf)
 		} else
 			color = &mg;
 
-		ws_image_draw(app->image, color, ws, 50, voffs);
+		c1 = '0' + ws;
+		ws_image_draw(app->image, color, c1, 50, voffs);
 
 		voffs += 120;
 	}
@@ -307,7 +346,10 @@ ws_main_loop(struct ws *app)
 		len = recvfrom(fd, buf, 8192, 0, (struct sockaddr *)&from,
 		    &fromlen);
 		/* printf("recvfrom: %s, len %d\n", buf, len); */
-		draw_numbers(app, buf);
+		if (buf[0] == 'W')
+			draw_numbers(app, &buf[1]);
+		else if (buf[0] == 'C')
+			draw_cursor_xy(app, &buf[1]);
 	} while (len > 0);
 
 	close(fd);
@@ -316,15 +358,13 @@ ws_main_loop(struct ws *app)
 }
 
 static int
-ws_startup(void)
+ws_startup_app(struct ws *app)
 {
 	struct ws_output *output;
 	struct wl_shm_pool *pool;
 	struct ws_image *image;
-	struct ws *app;
 
-	app = calloc(1, sizeof(struct ws));
-	image = ws_image_create(MAX_WIDTH, MAX_HEIGHT);
+	image = ws_image_create(app->name, app->width, app->height);
 
 	app->image = image;
 
@@ -392,7 +432,12 @@ ws_startup(void)
 		return (-1);
 	}
 
-	ws_main_loop(app);
+	return (0);
+}
+
+static int
+ws_destroy_app(struct ws *app)
+{
 
 	zwlr_layer_shell_v1_destroy(app->wlr_layer_shell);
 	wl_buffer_destroy(app->wl_buffer);
@@ -410,10 +455,24 @@ ws_startup(void)
 int
 main(int argc, char **argv)
 {
+	struct ws *app;
+
+	app = calloc(1, sizeof(struct ws));
+	app->name = "app";
+	app->margin_top = 0;
+	app->margin_right = 0;
+	app->margin_bottom = 0;
+	app->margin_left = 0;
+	app->width = MAX_WIDTH;
+	app->height = MAX_HEIGHT;
+	app->anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
 
 	fcft_init(FCFT_LOG_COLORIZE_AUTO, false, FCFT_LOG_CLASS_DEBUG);
 	ws_font_init();
-	ws_startup();
+
+	ws_startup_app(app);
+	ws_main_loop(app);
+	ws_destroy_app(app);
 
 	return (0);
 }
