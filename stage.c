@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2022-2023 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2022-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,7 +40,6 @@
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
-#include <wlr/types/wlr_idle.h>
 #include <wlr/types/wlr_input_device.h>
 #include <wlr/types/wlr_input_inhibitor.h>
 #include <wlr/types/wlr_keyboard.h>
@@ -771,21 +770,52 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 }
 
 static void
-notify_ws_daemon(int oldws, int newws)
+socket_send(char *str)
 {
-	struct stage_workspace *ws;
 	struct sockaddr_un addr;
 	char send_msg[16];
+	int fd;
+
+	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
+		return;
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strcpy(addr.sun_path, SERVER_SOCK_FILE);
+
+	sprintf(send_msg, "%s", str);
+
+	sendto(fd, send_msg, strlen(send_msg) + 1, 0, (struct sockaddr *)&addr,
+	   sizeof(struct sockaddr_un));
+
+	close(fd);
+}
+
+static void
+notify_cursor_xy(int x, int y)
+{
+	char str[32];
+
+	sprintf(str, "C%d,%d", x, y);
+
+	socket_send(str);
+}
+
+static void
+notify_ws_change(int oldws, int newws)
+{
+	struct stage_workspace *ws;
 	char str[32];
 	char *cur;
 	int error;
 	int count;
-	int fd;
 	int i;
 
 	memset(str, 0, 32);
 
-	cur = str;
+	str[0] = 'W';
+
+	cur = str + 1;
 
 	/* Start from workspace 1. End with workspace 0. */
 	i = 1;
@@ -809,19 +839,7 @@ notify_ws_daemon(int oldws, int newws)
 
 	} while (i++);
 
-	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
-		return;
-
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strcpy(addr.sun_path, SERVER_SOCK_FILE);
-
-	sprintf(send_msg, "%s", str);
-
-	sendto(fd, send_msg, strlen(send_msg) + 1, 0, (struct sockaddr *)&addr,
-	   sizeof(struct sockaddr_un));
-
-	close(fd);
+	socket_send(str);
 }
 
 static void
@@ -866,7 +884,7 @@ changeworkspace(struct stage_server *server, int newws)
 			focus_view(view, view_surface(view));
 	}
 
-	notify_ws_daemon(oldws, newws);
+	notify_ws_change(oldws, newws);
 }
 
 static void
@@ -1652,6 +1670,8 @@ process_cursor_motion(struct stage_server *server, uint32_t time)
 		focus_view(view, surface);
 	} else
 		wlr_seat_pointer_clear_focus(seat);
+
+	notify_cursor_xy(server->cursor->x, server->cursor->y);
 }
 
 static void
