@@ -301,6 +301,8 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 
 	surface = wlr_scene_surface_create(&server->scene->tree,
 		layer_surface->surface);
+
+	/* TODO */
 }
 
 static void
