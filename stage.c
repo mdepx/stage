@@ -191,7 +191,7 @@ struct stage_view {
 	bool slot_set;
 };
 
-#define	N_SLOTS		16
+#define	N_SLOTS		4
 #define	N_WORKSPACES	10
 
 #ifdef STAGE_DEV
@@ -1382,7 +1382,7 @@ init_slots(struct wlr_output *wlr_output)
 
 	tw = TERMINAL_FONT_WIDTH * 80 + 4;
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < N_SLOTS; i++) {
 		slots[i].w = tw > (w / 2) ? (w / 2) : tw;
 		slots[i].h = h / 2;
 	}
@@ -1663,31 +1663,77 @@ server_cursor_frame(struct wl_listener *listener, void *data)
 static void
 process_cursor_move(struct stage_server *server, uint32_t time)
 {
+	struct terminal_slot *slot;
 	struct stage_view *view;
+	int delta_x, delta_y;
+	int i;
 
 	view = server->grabbed_view;
 	view->x = server->cursor->x - server->grab_x;
 	view->y = server->cursor->y - server->grab_y;
+
+	dbg_printf("move %d %d\n", view->x, view->y);
+
+	for (i = 0; i < nslots; i++) {
+		slot = &slots[i];
+		if (slot->w == view->w &&
+		    slot->h == view->h) {
+		}
+
+		delta_x = abs(slot->x - view->x);
+		delta_y = abs(slot->y - view->y);
+
+		if (delta_x <= 20 && delta_y <= 20) {
+			view->x = slot->x;
+			view->y	= slot->y;
+			break;
+		}
+	}
+
 	wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
 }
 
 static void
 process_cursor_resize(struct stage_server *server, uint32_t time)
 {
+	struct terminal_slot *slot;
 	double border_x, border_y;
-	uint32_t new_x, new_y;
+	int new_w, new_h;
 	struct stage_view *view;
 	int new_left;
 	int new_right;
 	int new_top;
 	int new_bottom;
+	int delta_x, delta_y;
+	int slot_w, slot_h;
+	int i;
 
 	view = server->grabbed_view;
 
-	new_x = server->cursor->x - view->x;
-	new_y = server->cursor->y - view->y;
-	view->w = new_x;
-	view->h = new_y;
+	new_w = server->cursor->x - view->x;
+	new_h = server->cursor->y - view->y;
+
+	for (i = 0; i < nslots; i++) {
+		slot = &slots[i];
+		if (slot->w == view->w &&
+		    slot->h == view->h) {
+		}
+
+		slot_w = slot->x + slot->w;
+		slot_h = slot->y + slot->h;
+
+		delta_x = fabs(slot_w - server->cursor->x);
+		delta_y = fabs(slot_h - server->cursor->y);
+
+		if (delta_x <= 20 && delta_y <= 20) {
+			new_w = slot_w - view->x;
+			new_h = slot_h - view->y;
+			break;
+		}
+	}
+
+	view->w = new_w;
+	view->h = new_h;
 
 	update_borders(view);
 }
