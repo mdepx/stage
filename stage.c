@@ -200,6 +200,8 @@ struct stage_view {
 #define	STAGE_MODIFIER	WLR_MODIFIER_LOGO
 #endif
 
+static void cursor_focus(struct stage_server *server, uint32_t time);
+
 static struct terminal_slot {
 	int x;
 	int y;
@@ -893,6 +895,7 @@ changeworkspace(struct stage_server *server, int newws)
 			focus_view(view, view_surface(view));
 	}
 
+	cursor_focus(server, 0);
 	notify_ws_change(oldws, newws);
 }
 
@@ -1690,33 +1693,16 @@ process_cursor_resize(struct stage_server *server, uint32_t time)
 }
 
 static void
-process_cursor_motion(struct stage_server *server, uint32_t time)
+cursor_focus(struct stage_server *server, uint32_t time)
 {
-	struct wlr_seat *seat;
 	struct wlr_surface *surface;
+	struct wlr_seat *seat;
 	struct stage_view *view;
 	double sx, sy;
 
-	dbg_printf("%s: mode %d\n", __func__, server->cursor_mode);
-
-	if (server->cursor_mode == STAGE_CURSOR_MOVE) {
-		process_cursor_move(server, time);
-		return;
-	} else if (server->cursor_mode == STAGE_CURSOR_RESIZE) {
-		process_cursor_resize(server, time);
-		return;
-	}
-
-	surface = NULL;
-
 	seat = server->seat;
 
-	if (server->cursor_mode == STAGE_CURSOR_SCROLL) {
-		sx = server->cursor->x - server->grabbed_view->x;
-		sy = server->cursor->y - server->grabbed_view->y;
-		wlr_seat_pointer_notify_motion(seat, time, sx, sy);
-		return;
-	}
+	surface = NULL;
 
 	view = desktop_view_at(server, server->cursor->x, server->cursor->y,
 	    &surface, &sx, &sy);
@@ -1730,6 +1716,33 @@ process_cursor_motion(struct stage_server *server, uint32_t time)
 		focus_view(view, surface);
 	} else
 		wlr_seat_pointer_clear_focus(seat);
+}
+
+static void
+process_cursor_motion(struct stage_server *server, uint32_t time)
+{
+	struct stage_view *view;
+	double sx, sy;
+
+	dbg_printf("%s: mode %d\n", __func__, server->cursor_mode);
+
+	switch (server->cursor_mode) {
+	case STAGE_CURSOR_MOVE:
+		process_cursor_move(server, time);
+		return;
+	case STAGE_CURSOR_RESIZE:
+		process_cursor_resize(server, time);
+		return;
+	case STAGE_CURSOR_SCROLL:
+		sx = server->cursor->x - server->grabbed_view->x;
+		sy = server->cursor->y - server->grabbed_view->y;
+		wlr_seat_pointer_notify_motion(server->seat, time, sx, sy);
+		return;
+	default:
+		break;
+	}
+
+	cursor_focus(server, time);
 
 	notify_cursor_xy(server->cursor->x, server->cursor->y);
 }
