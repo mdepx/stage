@@ -1356,8 +1356,6 @@ server_new_input(struct wl_listener *listener, void *data)
 		break;
 	case WLR_INPUT_DEVICE_TOUCH:
 		break;
-	case WLR_INPUT_DEVICE_TABLET_TOOL:
-		break;
 	case WLR_INPUT_DEVICE_TABLET_PAD:
 		break;
 	case WLR_INPUT_DEVICE_SWITCH:
