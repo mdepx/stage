@@ -190,7 +190,7 @@ struct stage_view {
 	bool slot_set;
 };
 
-#define	N_SLOTS		4
+#define	N_SLOTS		5
 #define	N_WORKSPACES	10
 
 #ifdef STAGE_DEV
@@ -206,6 +206,8 @@ static struct terminal_slot {
 	int y;
 	int w;
 	int h;
+	int flags;
+#define	SLOT_NEW_WINDOW	(1 << 0)
 } slots[N_SLOTS];
 
 static int nslots = 0;
@@ -526,6 +528,8 @@ view_set_slot(struct stage_view *view)
 	    strcmp(app_id, "URxvt") == 0) {
 		for (i = 0; i < nslots; i++) {
 			slot = &slots[i];
+			if ((slot->flags & SLOT_NEW_WINDOW) == 0)
+				continue;
 
 			v = desktop_view_at(view->server, slot->x, slot->y,
 			    NULL, NULL, NULL);
@@ -1382,6 +1386,7 @@ init_slots(struct wlr_output *wlr_output)
 	for (i = 0; i < N_SLOTS; i++) {
 		slots[i].w = tw > (w / 2) ? (w / 2) : tw;
 		slots[i].h = h / 2;
+		slots[i].flags = SLOT_NEW_WINDOW;
 	}
 
 	slots[0].x = w / 2;
@@ -1396,7 +1401,13 @@ init_slots(struct wlr_output *wlr_output)
 	slots[3].x = tw > (w / 2) ? 0 : (w / 2) - tw;
 	slots[3].y = 0;
 
-	nslots += 4;
+	slots[4].x = 0;
+	slots[4].y = 0;
+	slots[4].w = w;
+	slots[4].h = h;
+	slots[4].flags = 0;
+
+	nslots += 5;
 }
 
 static void
@@ -1409,6 +1420,7 @@ server_new_output(struct wl_listener *listener, void *data)
 	struct wlr_scene_output *scene_output;
 	struct stage_output *output;
 	struct stage_server *server;
+	bool found;
 
 	printf("%s\n", __func__);
 
@@ -1421,30 +1433,19 @@ server_new_output(struct wl_listener *listener, void *data)
 	wlr_output_state_set_enabled(&state, true);
 
 	mode = NULL;
-#if 0
+	found = false;
 	wl_list_for_each(mode, &wlr_output->modes, link) {
 		printf("found mode %dx%d\n", mode->width, mode->height);
+#if 0
 		if (mode->width == 1920 && mode->height == 1080) {
-			wlr_output_set_mode(wlr_output, mode);
-			wlr_output_enable(wlr_output, true);
-			if (!wlr_output_commit(wlr_output))
-				return;
+			found = true;
 			break;
 		}
-	}
 #endif
+	}
 
-#if 0
-	if (!wl_list_empty(&wlr_output->modes) && !mode) {
+	if (found == false)
 		mode = wlr_output_preferred_mode(wlr_output);
-		wlr_output_set_mode(wlr_output, mode);
-		wlr_output_enable(wlr_output, true);
-		if (!wlr_output_commit(wlr_output))
-			return;
-	}
-#endif
-
-	mode = wlr_output_preferred_mode(wlr_output);
 	if (mode != NULL)
 		wlr_output_state_set_mode(&state, mode);
 
