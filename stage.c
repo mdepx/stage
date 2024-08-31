@@ -191,7 +191,7 @@ struct stage_view {
 };
 
 #define	N_SLOTS		5
-#define	N_WORKSPACES	10
+#define	N_WORKSPACES	14
 
 #ifdef STAGE_DEV
 #define	STAGE_MODIFIER	WLR_MODIFIER_ALT
@@ -1112,6 +1112,8 @@ handle_keybinding2(struct stage_server *server,
 		break;
 	case XKB_KEY_Super_R:
 		break;
+	case WLR_MODIFIER_ALT:
+		break;
 	default:
 		return (false);
 	}
@@ -1180,13 +1182,23 @@ handle_keybinding(struct stage_server *server,
 	case XKB_KEY_9:
 		changeworkspace(server, 9);
 		break;
+	case XKB_KEY_minus:
+		changeworkspace(server, 10);
+		break;
+	case XKB_KEY_equal:
+		changeworkspace(server, 11);
+		break;
+	case XKB_KEY_backslash:
+		changeworkspace(server, 12);
+		break;
+	case XKB_KEY_grave:
+		changeworkspace(server, 13);
+		break;
 	case XKB_KEY_m:
 		maxvert(server);
 		break;
 	case XKB_KEY_f:
 		maximize(server);
-		break;
-	case XKB_KEY_minus:
 		break;
 	case XKB_KEY_q:
 		switch_light("0");
