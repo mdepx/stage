@@ -129,6 +129,7 @@ struct stage_server {
 	double cur_saved_y;
 
 	int current_layout;
+	int oldws;
 
 	struct wlr_layer_shell_v1 *shell;
 	struct wl_listener new_layer_shell_surface;
@@ -214,7 +215,7 @@ static int nslots = 0;
 
 static struct stage_workspace {
 	struct wl_list views;
-	int index;
+	char name;
 } workspaces[N_WORKSPACES];
 
 static char terminal[] = "foot";
@@ -839,17 +840,20 @@ notify_ws_change(int oldws, int newws)
 
 		ws = &workspaces[i];
 		if (i == newws) {
-			snprintf(cur, 3, "!%d", i);
+			snprintf(cur, 3, "!%c", ws->name);
 			cur += 2;
-		} else if (!wl_list_empty(&ws->views)) {
+		}
+#if 0
+		else if (!wl_list_empty(&ws->views)) {
 			if (i == oldws) {
-				snprintf(cur, 3, "?%d", i);
+				snprintf(cur, 3, "?%c", ws->name);
 				cur += 2;
 			} else {
-				snprintf(cur, 2, "%d", i);
+				snprintf(cur, 2, "%c", ws->name);
 				cur += 1;
 			}
 		}
+#endif
 
 	} while (i++);
 
@@ -872,6 +876,7 @@ changeworkspace(struct stage_server *server, int newws)
 		return;
 
 	oldws = out->curws;
+	server->oldws = oldws;
 	out->curws = newws;
 
 	focused_view = NULL;
@@ -1193,6 +1198,9 @@ handle_keybinding(struct stage_server *server,
 		break;
 	case XKB_KEY_grave:
 		changeworkspace(server, 13);
+		break;
+	case XKB_KEY_Escape:
+		changeworkspace(server, server->oldws);
 		break;
 	case XKB_KEY_m:
 		maxvert(server);
@@ -2074,8 +2082,13 @@ main(int argc, char *argv[])
 
 	for (i = 0; i < N_WORKSPACES; i++) {
 		wl_list_init(&workspaces[i].views);
-		workspaces[i].index = i;
+		workspaces[i].name = XKB_KEY_0 + i;
 	}
+
+	workspaces[10].name = XKB_KEY_minus;
+	workspaces[11].name = XKB_KEY_equal;
+	workspaces[12].name = XKB_KEY_backslash;
+	workspaces[13].name = XKB_KEY_grave;
 
 	wl_list_init(&server.keyboards);
 	server.new_input.notify = server_new_input;
