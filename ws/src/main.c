@@ -234,7 +234,6 @@ draw_cursor_xy(struct ws *app, char *buf)
 {
 	static pixman_color_t *color;
 	int voffs;
-	int ws;
 	int i;
 	char c;
 
@@ -269,10 +268,8 @@ draw_numbers(struct ws *app, char *buf)
 	int oldflag;
 	int newflag;
 	int voffs;
-	int ws;
 	int i;
 	char c;
-	char c1;
 
 	i = 0;
 	voffs = 100;
@@ -296,8 +293,6 @@ draw_numbers(struct ws *app, char *buf)
 			continue;
 		}
 
-		ws = strtol(&c, NULL, 10);
-
 		/* printf("c %c ws %d\n", c, ws); */
 
 		if (newflag) {
@@ -309,8 +304,7 @@ draw_numbers(struct ws *app, char *buf)
 		} else
 			color = &mg;
 
-		c1 = '0' + ws;
-		ws_image_draw(app->image, color, c1, 50, voffs);
+		ws_image_draw(app->image, color, c, 50, voffs);
 
 		voffs += 120;
 	}
