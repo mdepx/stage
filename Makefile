@@ -11,10 +11,10 @@ LDFLAGS =	-L/usr/local/lib -lwayland-server -lwlroots-0.18 -lxkbcommon
 HEADERS =	xdg-shell-protocol.h wlr-layer-shell-unstable-v1-protocol.h
 
 all:	${HEADERS}
-	cc ${CFLAGS} -DSTAGE_DEV ${LDFLAGS} stage.c -o stage
-
-prod:	${HEADERS}
 	cc ${CFLAGS} ${LDFLAGS} stage.c -o stage
+
+dev:	${HEADERS}
+	cc ${CFLAGS} -DSTAGE_DEV ${LDFLAGS} stage.c -o stage
 
 xdg-shell-protocol.h:
 	${WL_SCANNER} server-header ${XDG_SHELL} $@
@@ -26,7 +26,6 @@ run:
 	mkdir -p /tmp/wl
 	sudo chmod 0777 /var/run/seatd.sock
 	sudo chmod 0777 /dev/dri/card0 /dev/dri/renderD128
-	ssh-agent ./stage
 
 clean:
 	rm -f stage stage.o ${HEADERS}
