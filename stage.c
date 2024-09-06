@@ -192,7 +192,7 @@ struct stage_view {
 };
 
 #define	N_SLOTS		5
-#define	N_WORKSPACES	32
+#define	N_WORKSPACES	16
 
 #ifdef STAGE_DEV
 #define	STAGE_MODIFIER	WLR_MODIFIER_ALT
@@ -844,7 +844,7 @@ notify_ws_change(int oldws, int newws)
 			snprintf(cur, 3, "!%c", ws->name);
 			cur += 2;
 		}
-#if 0
+#if 1
 		else if (!wl_list_empty(&ws->views)) {
 			if (i == oldws) {
 				snprintf(cur, 3, "?%c", ws->name);
