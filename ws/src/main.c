@@ -342,8 +342,10 @@ ws_main_loop(struct ws *app)
 		/* printf("recvfrom: %s, len %d\n", buf, len); */
 		if (buf[0] == 'W')
 			draw_numbers(app, &buf[1]);
+#if 0
 		else if (buf[0] == 'C')
 			draw_cursor_xy(app, &buf[1]);
+#endif
 	} while (len > 0);
 
 	close(fd);
