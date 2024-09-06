@@ -192,7 +192,7 @@ struct stage_view {
 };
 
 #define	N_SLOTS		5
-#define	N_WORKSPACES	14
+#define	N_WORKSPACES	15
 
 #ifdef STAGE_DEV
 #define	STAGE_MODIFIER	WLR_MODIFIER_ALT
@@ -1199,6 +1199,9 @@ handle_keybinding(struct stage_server *server,
 	case XKB_KEY_grave:
 		changeworkspace(server, 13);
 		break;
+	case XKB_KEY_t:
+		changeworkspace(server, 14);
+		break;
 	case XKB_KEY_Escape:
 		changeworkspace(server, server->oldws);
 		break;
@@ -2089,6 +2092,7 @@ main(int argc, char *argv[])
 	workspaces[11].name = XKB_KEY_equal;
 	workspaces[12].name = XKB_KEY_backslash;
 	workspaces[13].name = XKB_KEY_grave;
+	workspaces[14].name = XKB_KEY_t;
 
 	wl_list_init(&server.keyboards);
 	server.new_input.notify = server_new_input;
