@@ -219,6 +219,7 @@ static struct stage_workspace {
 } workspaces[N_WORKSPACES];
 
 static char terminal[] = "foot";
+static char ws[] = "ws";
 #define TERMINAL_FONT_WIDTH 15
 
 struct stage_keyboard {
@@ -354,7 +355,7 @@ view_geometry(struct stage_view *view, struct wlr_box *geom)
 		//geom->width = 100;
 		//geom->height = 100;
 	} else
-		wlr_xdg_surface_get_geometry(view->xdg_toplevel->base, geom);
+		geom = &view->xdg_toplevel->base->geometry;
 }
 
 static void
@@ -558,7 +559,7 @@ view_align(struct stage_view *view)
 	out = cursor_at(view->server);
 	output = out->wlr_output;
 
-	wlr_xdg_surface_get_geometry(view->xdg_toplevel->base, &geom);
+	geom = view->xdg_toplevel->base->geometry;
 
 	printf("%s: view geoms %d %d %d %d\n", __func__, geom.x, geom.y,
 	    geom.width, geom.height);
@@ -2149,6 +2150,8 @@ main(int argc, char *argv[])
 	setenv("WAYLAND_DISPLAY", socket, true);
 	if (fork() == 0)
 		execl("/bin/sh", "/bin/sh", "-c", terminal, NULL);
+	if (fork() == 0)
+		execl("/bin/sh", "/bin/sh", "-c", ws, NULL);
 	wl_display_run(server.wl_disp);
 
 	wl_display_destroy_clients(server.wl_disp);
