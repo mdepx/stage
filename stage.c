@@ -907,16 +907,6 @@ socket_send(char *str)
 }
 
 static void
-notify_cursor_xy(int x, int y)
-{
-	char str[32];
-
-	sprintf(str, "C%d,%d", x, y);
-
-	socket_send(str);
-}
-
-static void
 notify_ws_change(int oldws, int newws)
 {
 	struct stage_workspace *ws;
@@ -1923,8 +1913,6 @@ process_cursor_motion(struct stage_server *server, uint32_t time)
 	}
 
 	cursor_focus(server, time);
-
-	notify_cursor_xy(server->cursor->x, server->cursor->y);
 }
 
 static void
