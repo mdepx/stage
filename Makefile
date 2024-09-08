@@ -2,11 +2,12 @@ WL_SCANNER	= /usr/local/bin/wayland-scanner
 WLR_LAYER_SHELL = protocols/wlr-layer-shell-unstable-v1.xml
 XDG_SHELL = /usr/local/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
 
-CFLAGS +=	-I/usr/local/include/ -I/usr/local/include/pixman-1/ -I.
+CFLAGS +=	-I/usr/local/include/pixman-1/ -I.
 CFLAGS +=	-I/usr/local/include/wlroots-0.19/
+CFLAGS +=	-I/usr/local/include/
 CFLAGS +=	-DWLR_USE_UNSTABLE
 
-LDFLAGS =	-L/usr/local/lib -lwayland-server -lwlroots-0.19 -lxkbcommon
+LDFLAGS =	-L/usr/local/lib -lwayland-server -lwlroots-0.19 -lxkbcommon -lm
 
 HEADERS =	xdg-shell-protocol.h wlr-layer-shell-unstable-v1-protocol.h
 
