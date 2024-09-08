@@ -1373,7 +1373,17 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 			handled = handle_keybinding(server, event, sym);
 		else
 			handled = handle_keybinding2(server, event, sym);
+
+		if (sym == XKB_KEY_Print) {
+			if (fork() == 0)
+				execl("/bin/sh", "/bin/sh", "-c",
+				    "/usr/local/bin/slurp", "|", "grim", "-g",
+				    "-", "-", "|", "wl-copy", NULL);
+			handled = true;
+		}
 	}
+
+	dbg_printf("sym %x\n", sym);
 
 	if (!handled) {
 		wlr_seat_set_keyboard(server->seat, kb);
