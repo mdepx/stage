@@ -39,6 +39,7 @@
 #include <wlr/types/wlr_data_control_v1.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
 #include <wlr/types/wlr_input_device.h>
 #include <wlr/types/wlr_keyboard.h>
@@ -284,30 +285,128 @@ cursor_at(struct stage_server *server)
 	return (out);
 }
 
+struct stage_layer_surface {
+	struct wl_listener map;
+	struct wl_listener unmap;
+	struct wl_listener surface_commit;
+	struct wl_listener output_destroy;
+	struct wl_listener node_destroy;
+	struct wl_listener new_popup;
+
+	struct wlr_scene_layer_surface_v1 *scene;
+	struct wlr_scene_tree *tree;
+	struct wlr_layer_surface_v1 *layer_surface;
+};
+
+static struct stage_layer_surface *
+stage_layer_surface_create(struct wlr_scene_layer_surface_v1 *scene)
+{
+	struct stage_layer_surface *surface;
+
+	surface = calloc(1, sizeof(*surface));
+
+	surface->tree = scene->tree;
+	surface->scene = scene;
+	surface->layer_surface = scene->layer_surface;
+	surface->layer_surface->data = surface;
+
+	return (surface);
+}
+
+/*
+ * Layer surface.
+ */
+
+static void
+handle_surface_commit(struct wl_listener *listener, void *data)
+{
+
+};
+
+static void
+handle_map(struct wl_listener *listener, void *data)
+{
+
+}
+
 void
 new_layer_shell_surface(struct wl_listener *listener, void *data)
 {
+	struct wlr_scene_layer_surface_v1 *scene_surface;
 	struct wlr_layer_surface_v1 *layer_surface;
-	struct wlr_scene_surface *surface;
+	enum zwlr_layer_shell_v1_layer layer_type;
+	struct stage_layer_surface *surface;
+	struct wlr_scene_tree *output_layer;
 	struct wlr_output *output;
 	struct stage_server *server;
 	struct stage_output *out;
+	struct wlr_box full_area;
 
 	dbg_printf("%s\n", __func__);
 
 	layer_surface = data;
+
+	printf("%s: new layer surface %p, namespace %s layer %d achor %d "
+	    "size %d %d margin %d %d %d %d\n", __func__, layer_surface,
+		layer_surface->namespace,
+		layer_surface->pending.layer,
+		layer_surface->pending.anchor,
+		layer_surface->pending.desired_width,
+		layer_surface->pending.desired_height,
+		layer_surface->pending.margin.top,
+		layer_surface->pending.margin.right,
+		layer_surface->pending.margin.bottom,
+		layer_surface->pending.margin.left);
+
 	server = wl_container_of(listener, server, new_layer_shell_surface);
 
 	out = cursor_at(server);
+	layer_type = layer_surface->pending.layer;
 
 	layer_surface->output = out->wlr_output;
 
-	wlr_layer_surface_v1_configure(layer_surface, 200, 200);
+	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
+	    &full_area.height);
+	wlr_layer_surface_v1_configure(layer_surface, full_area.width,
+	    full_area.height);
 
-	surface = wlr_scene_surface_create(&server->scene->tree,
-		layer_surface->surface);
+	output_layer = &server->scene->tree;
 
+	scene_surface = wlr_scene_layer_surface_v1_create(output_layer,
+	    layer_surface);
+
+	surface = stage_layer_surface_create(scene_surface);
+
+	printf("%s: new surface %p\n", __func__, surface);
+
+	wlr_fractional_scale_v1_notify_scale(layer_surface->surface,
+	    layer_surface->output->scale);
+	wlr_surface_set_preferred_buffer_scale(layer_surface->surface,
+	    ceil(layer_surface->output->scale));
+
+	surface->surface_commit.notify = handle_surface_commit;
+	wl_signal_add(&layer_surface->surface->events.commit,
+	    &surface->surface_commit);
+
+	surface->map.notify = handle_map;
+	wl_signal_add(&layer_surface->surface->events.map, &surface->map);
+
+#if 0
 	/* TODO */
+
+	surface->unmap.notify = handle_unmap;
+	wl_signal_add(&layer_surface->surface->events.unmap, &surface->unmap);
+
+	surface->new_popup.notify = handle_new_popup;
+	wl_signal_add(&layer_surface->events.new_popup, &surface->new_popup);
+
+	surface->output_destroy.notify = handle_output_destroy;
+	wl_signal_add(&output->events.disable, &surface->output_destroy);
+
+	surface->node_destroy.notify = handle_node_destroy;
+	wl_signal_add(&scene_surface->tree->node.events.destroy,
+	    &surface->node_destroy);
+#endif
 }
 
 static void
@@ -1765,6 +1864,7 @@ process_cursor_resize(struct stage_server *server, uint32_t time)
 static void
 cursor_focus(struct stage_server *server, uint32_t time)
 {
+	struct wlr_layer_surface_v1 *ls;
 	struct wlr_surface *surface;
 	struct wlr_seat *seat;
 	struct stage_view *view;
@@ -1779,6 +1879,16 @@ cursor_focus(struct stage_server *server, uint32_t time)
 	if (!view)
 		wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr,
 		    "left_ptr");
+
+	if (!view && surface) {
+		ls = wlr_layer_surface_v1_try_from_wlr_surface(surface);
+		if (ls) {
+			wlr_seat_pointer_notify_motion(seat, time, sx, sy);
+			wlr_seat_pointer_notify_enter(seat, ls->surface,
+			    sx, sy);
+			return;
+		}
+	}
 
 	if (surface) {
 		wlr_seat_pointer_notify_motion(seat, time, sx, sy);
@@ -1859,8 +1969,9 @@ static void
 server_cursor_button(struct wl_listener *listener, void *data)
 {
 	struct wlr_pointer_button_event *event;
-	struct stage_server *server;
+	struct wlr_layer_surface_v1 *ls;
 	struct wlr_keyboard *keyboard;
+	struct stage_server *server;
 	uint32_t mods;
 
 	server = wl_container_of(listener, server, cursor_button);
@@ -1877,6 +1988,16 @@ server_cursor_button(struct wl_listener *listener, void *data)
 
 	view = desktop_view_at(server, server->cursor->x, server->cursor->y,
 	    &surface, &sx, &sy);
+
+	if (!view && surface) {
+		ls = wlr_layer_surface_v1_try_from_wlr_surface(surface);
+		if (ls) {
+			wlr_seat_pointer_notify_button(server->seat,
+			    event->time_msec, event->button, event->state);
+			return;
+		}
+	}
+
 	if (!view) {
 		server->cursor_mode = STAGE_CURSOR_PASSTHROUGH;
 		return;
@@ -2044,6 +2165,11 @@ main(int argc, char *argv[])
 	server.scene_layout = wlr_scene_attach_output_layout(server.scene,
 	    server.output_layout);
 
+#if 0
+	struct wlr_scene_tree *tree;
+	tree = wlr_scene_tree_create(&server.scene->tree);
+#endif
+
 	server.xdg_shell = wlr_xdg_shell_create(server.wl_disp, 3);
 	server.new_xdg_surface.notify = server_new_xdg_surface;
 	wl_signal_add(&server.xdg_shell->events.new_toplevel,
@@ -2150,8 +2276,10 @@ main(int argc, char *argv[])
 	setenv("WAYLAND_DISPLAY", socket, true);
 	if (fork() == 0)
 		execl("/bin/sh", "/bin/sh", "-c", terminal, NULL);
+#ifndef STAGE_DEV
 	if (fork() == 0)
 		execl("/bin/sh", "/bin/sh", "-c", ws, NULL);
+#endif
 	wl_display_run(server.wl_disp);
 
 	wl_display_destroy_clients(server.wl_disp);
