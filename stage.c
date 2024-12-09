@@ -2002,7 +2002,8 @@ server_cursor_button(struct wl_listener *listener, void *data)
 	}
 
 	mods = wlr_keyboard_get_modifiers(keyboard);
-	if ((mods & STAGE_MODIFIER) && event->state == WLR_BUTTON_PRESSED) {
+	if ((mods & STAGE_MODIFIER) &&
+	    event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
 		server->grabbed_view = view;
 		server->grab_x = server->cursor->x - view->x;
 		server->grab_y = server->cursor->y - view->y;
@@ -2027,7 +2028,7 @@ server_cursor_button(struct wl_listener *listener, void *data)
 		return;
 	}
 
-	if ((event->state == WLR_BUTTON_RELEASED) &&
+	if ((event->state == WL_POINTER_BUTTON_STATE_RELEASED) &&
 	    ((server->cursor_mode == STAGE_CURSOR_MOVE) ||
 	     (server->cursor_mode == STAGE_CURSOR_RESIZE))) {
 
@@ -2053,7 +2054,7 @@ server_cursor_button(struct wl_listener *listener, void *data)
 
 	if (mods == 0) {
 		if (event->button == BTN_LEFT) {
-			if (event->state == WLR_BUTTON_PRESSED) {
+			if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
 				server->grabbed_view = view;
 				server->grab_x = server->cursor->x - view->x;
 				server->grab_y = server->cursor->y - view->y;
@@ -2186,7 +2187,7 @@ main(int argc, char *argv[])
 	    &server.output_manager_test);
 
 	server.presentation = wlr_presentation_create(server.wl_disp,
-	    server.backend);
+	    server.backend, 2);
 
 	server.cursor = wlr_cursor_create();
 	wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
