@@ -1377,8 +1377,8 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 		if (sym == XKB_KEY_Print) {
 			if (fork() == 0)
 				execl("/bin/sh", "/bin/sh", "-c",
-				    "/usr/local/bin/slurp", "|", "grim", "-g",
-				    "-", "-", "|", "wl-copy", NULL);
+				    "/usr/local/bin/slurp", "|", "/usr/local/bin/grim", "-g",
+				    "-", "-", "|", "/usr/local/bin/wl-copy", NULL);
 			handled = true;
 		}
 	}
