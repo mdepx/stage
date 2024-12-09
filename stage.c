@@ -525,14 +525,15 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 	if (prev_surface) {
 		previous =
 		    wlr_xdg_surface_try_from_wlr_surface(prev_surface);
-		assert(previous != NULL);
-		assert(previous->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
-		if (previous->toplevel != NULL)
-			wlr_xdg_toplevel_set_activated(previous->toplevel,
-			    false);
-		scene_node = previous->data;
-		prev_view = scene_node->data;
-		view_set_borders_active(prev_view, false);
+		if (previous) {
+			assert(previous->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL);
+			if (previous->toplevel != NULL)
+				wlr_xdg_toplevel_set_activated(
+				    previous->toplevel, false);
+			scene_node = previous->data;
+			prev_view = scene_node->data;
+			view_set_borders_active(prev_view, false);
+		}
 	}
 
 	wlr_xdg_toplevel_set_activated(view->xdg_toplevel, true);
