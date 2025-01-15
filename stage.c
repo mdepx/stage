@@ -1220,23 +1220,18 @@ handle_keybinding2(struct stage_server *server,
 static void
 switch_light(char *arg)
 {
+	struct stat st;
+	char *p;
 	int pid;
+
+	p = "/usr/local/bin/python3.10";
+
+	if (stat(p, &st) == -1)
+		return;
 
 	pid = fork();
 	if (pid == 0)
-		execl("/usr/local/bin/python3.10",
-		    "/usr/local/bin/python3.10",
-		    "/home/br/lights/test_client.py", arg, NULL);
-}
-
-static void
-switch_mode(char *arg)
-{
-	int pid;
-
-	pid = fork();
-	if (pid == 0)
-		execl("/home/br/eizo/eizo", "/home/br/eizo/eizo", arg, NULL);
+		execl(p, p, "/home/br/lights/test_client.py", arg, NULL);
 }
 
 static bool
@@ -1316,11 +1311,6 @@ handle_keybinding(struct stage_server *server,
 		break;
 	case XKB_KEY_r:
 		switch_light("3");
-		break;
-	case XKB_KEY_a:
-#if 0
-		switch_mode("0");
-#endif
 		break;
 	case XKB_KEY_Return:
 		if (fork() == 0)
