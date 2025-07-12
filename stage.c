@@ -44,7 +44,6 @@
 #include <wlr/types/wlr_input_device.h>
 #include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
-#include <wlr/types/wlr_matrix.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_output_management_v1.h>
@@ -157,6 +156,7 @@ struct stage_output {
 	struct stage_server *server;
 	struct wlr_output *wlr_output;
 	struct wl_listener frame;
+	struct wl_listener request_state;
 	int curws;
 };
 
@@ -296,6 +296,7 @@ struct stage_layer_surface {
 	struct wlr_scene_layer_surface_v1 *scene;
 	struct wlr_scene_tree *tree;
 	struct wlr_layer_surface_v1 *layer_surface;
+	struct stage_server *server;
 };
 
 static struct stage_layer_surface *
@@ -320,13 +321,29 @@ stage_layer_surface_create(struct wlr_scene_layer_surface_v1 *scene)
 static void
 handle_surface_commit(struct wl_listener *listener, void *data)
 {
+	struct stage_layer_surface *surface;
+	struct wlr_box full_area;
+	struct stage_output *out;
+	struct stage_server *server;
 
-};
+	printf("%s\n", __func__);
+
+	surface = wl_container_of(listener, surface, surface_commit);
+	server = surface->server;
+	out = cursor_at(server);
+
+	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
+	    &full_area.height);
+
+	wlr_layer_surface_v1_configure(surface->layer_surface, full_area.width,
+	    full_area.height);
+}
 
 static void
 handle_map(struct wl_listener *listener, void *data)
 {
 
+	printf("%s\n", __func__);
 }
 
 void
@@ -367,8 +384,6 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 
 	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
 	    &full_area.height);
-	wlr_layer_surface_v1_configure(layer_surface, full_area.width,
-	    full_area.height);
 
 	output_layer = &server->scene->tree;
 
@@ -384,12 +399,15 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	wlr_surface_set_preferred_buffer_scale(layer_surface->surface,
 	    ceil(layer_surface->output->scale));
 
+	surface->server = server;
 	surface->surface_commit.notify = handle_surface_commit;
 	wl_signal_add(&layer_surface->surface->events.commit,
 	    &surface->surface_commit);
 
+#if 0
 	surface->map.notify = handle_map;
 	wl_signal_add(&layer_surface->surface->events.map, &surface->map);
+#endif
 
 #if 0
 	/* TODO */
@@ -1527,6 +1545,21 @@ init_slots(struct wlr_output *wlr_output)
 }
 
 static void
+output_request_state(struct wl_listener *listener, void *data)
+{
+	const struct wlr_output_event_request_state *event;
+	struct stage_output *output;
+
+	printf("%s\n", __func__);
+
+	output = wl_container_of(listener, output, request_state);
+
+	event = data;
+
+	wlr_output_commit_state(output->wlr_output, event->state);
+}
+
+static void
 server_new_output(struct wl_listener *listener, void *data)
 {
 	struct wlr_output *wlr_output;
@@ -1578,6 +1611,10 @@ server_new_output(struct wl_listener *listener, void *data)
 	wl_signal_add(&wlr_output->events.frame, &output->frame);
 	wl_list_insert(&server->outputs, &output->link);
 
+	output->request_state.notify = output_request_state;
+	wl_signal_add(&wlr_output->events.request_state,
+	    &output->request_state);
+
 	l_output = wlr_output_layout_add_auto(server->output_layout,
 	    wlr_output);
 	scene_output = wlr_scene_output_create(server->scene, wlr_output);
@@ -1615,9 +1652,11 @@ xdg_toplevel_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&view->map.link);
 	wl_list_remove(&view->unmap.link);
 	wl_list_remove(&view->destroy.link);
+	wl_list_remove(&view->commit.link);
 
 	wl_list_remove(&view->request_move.link);
 	wl_list_remove(&view->request_resize.link);
+	wl_list_remove(&view->set_app_id.link);
 
 	free(view);
 }
@@ -1627,8 +1666,6 @@ xdg_toplevel_request_resize(struct wl_listener *listener, void *data)
 {
 	struct wlr_xdg_toplevel_resize_event *event;
 	struct stage_view *view;
-
-	printf("%s\n", __func__);
 
 	event = data;
 	view = wl_container_of(listener, view, request_resize);
@@ -1646,7 +1683,16 @@ handle_set_app_id(struct wl_listener *listener, void *data)
 
 	create_borders(view);
 	view_set_slot(view);
-	update_borders(view);
+}
+
+static void
+xdg_toplevel_commit(struct wl_listener *listener, void *data)
+{
+	struct stage_view *toplevel;
+
+	toplevel = wl_container_of(listener, toplevel, commit);
+	if (toplevel->xdg_toplevel->base->initial_commit)
+		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, 0, 0);
 }
 
 static void
@@ -1663,7 +1709,8 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 
 	server = wl_container_of(listener, server, new_xdg_surface);
 	xdg_toplevel = data;
-	printf("%s: app_id %s\n", __func__, xdg_toplevel->app_id);
+	if (xdg_toplevel->app_id != NULL)
+		printf("%s: app_id %s\n", __func__, xdg_toplevel->app_id);
 
 	view = malloc(sizeof(struct stage_view));
 	memset(view, 0, sizeof(struct stage_view));
@@ -1677,14 +1724,21 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 
 	view->map.notify = xdg_toplevel_map;
 	wl_signal_add(&xdg_toplevel->base->surface->events.map, &view->map);
+
 	view->unmap.notify = xdg_toplevel_unmap;
 	wl_signal_add(&xdg_toplevel->base->surface->events.unmap, &view->unmap);
+
 	view->destroy.notify = xdg_toplevel_destroy;
 	wl_signal_add(&xdg_toplevel->events.destroy, &view->destroy);
+
+	view->commit.notify = xdg_toplevel_commit;
+	wl_signal_add(&xdg_toplevel->base->surface->events.commit,
+	    &view->commit);
 
 	view->request_move.notify = xdg_toplevel_request_move;
 	wl_signal_add(&xdg_toplevel->events.request_move,
 	    &view->request_move);
+
 	view->request_resize.notify = xdg_toplevel_request_resize;
 	wl_signal_add(&xdg_toplevel->events.request_resize,
 	    &view->request_resize);
