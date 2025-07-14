@@ -1404,7 +1404,14 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 static void
 keyboard_handle_destroy(struct wl_listener *listener, void *data)
 {
+	struct stage_keyboard *keyboard;
 
+	keyboard = wl_container_of(listener, keyboard, destroy);
+
+	wl_list_remove(&keyboard->modifiers.link);
+	wl_list_remove(&keyboard->key.link);
+	wl_list_remove(&keyboard->destroy.link);
+	wl_list_remove(&keyboard->link);
 }
 
 static void
@@ -1454,6 +1461,7 @@ server_new_keyboard(struct stage_server *server,
 
 	keyboard->key.notify = keyboard_handle_key;
 	wl_signal_add(&kb->events.key, &keyboard->key);
+
 	keyboard->destroy.notify = keyboard_handle_destroy;
 	wl_signal_add(&device->events.destroy, &keyboard->destroy);
 
@@ -2269,6 +2277,7 @@ main(int argc, char *argv[])
 	workspaces[15].name = XKB_KEY_s;
 
 	wl_list_init(&server.keyboards);
+
 	server.new_input.notify = server_new_input;
 	wl_signal_add(&server.backend->events.new_input, &server.new_input);
 	server.seat = wlr_seat_create(server.wl_disp, "seat0");
