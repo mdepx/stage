@@ -289,7 +289,7 @@ struct stage_layer_surface {
 	struct wl_listener map;
 	struct wl_listener unmap;
 	struct wl_listener surface_commit;
-	struct wl_listener output_destroy;
+	struct wl_listener surface_destroy;
 	struct wl_listener node_destroy;
 	struct wl_listener new_popup;
 
@@ -344,6 +344,19 @@ handle_map(struct wl_listener *listener, void *data)
 {
 
 	printf("%s\n", __func__);
+}
+
+static void
+layer_shell_destroy(struct wl_listener *listener, void *data)
+{
+	struct stage_layer_surface *surface;
+
+	printf("%s\n", __func__);
+
+	surface = wl_container_of(listener, surface, surface_destroy);
+
+	wl_list_remove(&surface->surface_commit.link);
+	wl_list_remove(&surface->surface_destroy.link);
 }
 
 void
@@ -403,6 +416,9 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	surface->surface_commit.notify = handle_surface_commit;
 	wl_signal_add(&layer_surface->surface->events.commit,
 	    &surface->surface_commit);
+	surface->surface_destroy.notify = layer_shell_destroy;
+	wl_signal_add(&layer_surface->surface->events.destroy,
+	    &surface->surface_destroy);
 
 #if 0
 	surface->map.notify = handle_map;
