@@ -1807,12 +1807,27 @@ server_new_xdg_popup(struct wl_listener *listener, void *data)
 	popup = calloc(1, sizeof(*popup));
 	popup->xdg_popup = xdg_popup;
 
+	if (xdg_popup->parent == NULL) {
+		printf("could not create popup surface, no parent\n");
+		return;
+	}
+
 	parent = wlr_xdg_surface_try_from_wlr_surface(xdg_popup->parent);
+	if (!parent) {
+		printf("could not create popup surface\n");
+		return;
+	}
+
 	assert(parent != NULL);
 
 	struct wlr_scene_tree *parent_tree;
 
 	parent_tree = parent->data;
+	if (parent_tree == NULL) {
+		printf("could not create popup surface: parent tree is NULL\n");
+		return;
+	}
+
         xdg_popup->base->data = wlr_scene_xdg_surface_create(parent_tree,
 	    xdg_popup->base);
 
