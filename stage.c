@@ -74,7 +74,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define dbg_printf(args...)
+#define dprintf(args...)
 
 static const float color_focused[] = { 0.8, 0.4, 0.1, 0.1 };
 static const float color_default[] = { 0.4, 0.4, 0.4, 0.1 };
@@ -372,7 +372,7 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	struct stage_output *out;
 	struct wlr_box full_area;
 
-	dbg_printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	layer_surface = data;
 
@@ -657,7 +657,7 @@ view_set_slot(struct stage_view *view)
 
 	v = NULL;
 
-	dbg_printf("app id %s\n", app_id);
+	dprintf("app id %s\n", app_id);
 
 	if (strcmp(app_id, "foot") == 0 ||
 	    strcmp(app_id, "XTerm") == 0 ||
@@ -689,6 +689,7 @@ view_align(struct stage_view *view)
 	struct wlr_box geom;
 	struct stage_output *out;
 	struct wlr_output *output;
+	const char *app_id;
 
 	out = cursor_at(view->server);
 	output = out->wlr_output;
@@ -697,6 +698,15 @@ view_align(struct stage_view *view)
 
 	printf("%s: view geoms %d %d %d %d\n", __func__, geom.x, geom.y,
 	    geom.width, geom.height);
+
+	app_id = get_app_id(view);
+	if (app_id && strcmp(app_id, "wlroots") == 0) {
+		view->w = 1080;
+		view->h = 1240;
+		view->x = (output->width - geom.width) / 2;
+		view->y = (output->height - geom.height) / 2;
+		return;
+	}
 
 	view->w = geom.width;
 	view->h = geom.height;
@@ -1010,7 +1020,7 @@ changeworkspace(struct stage_server *server, int newws)
 	if (surface)
 		focused_view = view_from_surface(server, surface);
 
-	dbg_printf("%s: ws %d -> %d\n", __func__, oldws, newws);
+	dprintf("%s: ws %d -> %d\n", __func__, oldws, newws);
 
 	ws = &workspaces[oldws];
 	wl_list_for_each_safe(view, tmpview, &ws->views, link) {
@@ -1040,7 +1050,7 @@ output_frame(struct wl_listener *listener, void *data)
 	struct stage_output *output;
 	struct timespec now;
 
-	dbg_printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	output = wl_container_of(listener, output, frame);
 
@@ -1389,7 +1399,7 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 
 	mods = wlr_keyboard_get_modifiers(kb);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-		dbg_printf("%s: nsyms %d mods %x\n", __func__, nsyms, mods);
+		dprintf("%s: nsyms %d mods %x\n", __func__, nsyms, mods);
 		if (mods == WLR_MODIFIER_CTRL) {
 			/* Ignore key binding. */
 			if (sym == XKB_KEY_Return)
@@ -1408,7 +1418,7 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 		}
 	}
 
-	dbg_printf("sym %x\n", sym);
+	dprintf("sym %x\n", sym);
 
 	if (!handled) {
 		wlr_seat_set_keyboard(server->seat, kb);
@@ -1733,8 +1743,7 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 
 	server = wl_container_of(listener, server, new_xdg_surface);
 	xdg_toplevel = data;
-	if (xdg_toplevel->app_id != NULL)
-		printf("%s: app_id %s\n", __func__, xdg_toplevel->app_id);
+	printf("%s: app_id %s\n", __func__, xdg_toplevel->app_id);
 
 	view = malloc(sizeof(struct stage_view));
 	memset(view, 0, sizeof(struct stage_view));
@@ -1848,7 +1857,7 @@ server_cursor_axis(struct wl_listener *listener, void *data)
 
 	event = data;
 
-	dbg_printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 	printf("%s\n", __func__);
 
 	wlr_seat_pointer_notify_axis(server->seat,
@@ -1862,7 +1871,7 @@ server_cursor_frame(struct wl_listener *listener, void *data)
 	struct stage_server *server;
 
 	server = wl_container_of(listener, server, cursor_frame);
-	dbg_printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	wlr_seat_pointer_notify_frame(server->seat);
 }
@@ -1879,7 +1888,7 @@ process_cursor_move(struct stage_server *server, uint32_t time)
 	view->x = server->cursor->x - server->grab_x;
 	view->y = server->cursor->y - server->grab_y;
 
-	dbg_printf("move %d %d\n", view->x, view->y);
+	dprintf("move %d %d\n", view->x, view->y);
 
 	for (i = 0; i < nslots; i++) {
 		slot = &slots[i];
@@ -1988,7 +1997,7 @@ process_cursor_motion(struct stage_server *server, uint32_t time)
 	struct stage_view *view;
 	double sx, sy;
 
-	dbg_printf("%s: mode %d\n", __func__, server->cursor_mode);
+	dprintf("%s: mode %d\n", __func__, server->cursor_mode);
 
 	switch (server->cursor_mode) {
 	case STAGE_CURSOR_MOVE:
@@ -2021,7 +2030,7 @@ server_cursor_motion(struct wl_listener *listener, void *data)
 	if (server->locked)
 		return;
 
-	dbg_printf("%s: dx dy %f %f\n", __func__, event->x, event->y);
+	dprintf("%s: dx dy %f %f\n", __func__, event->x, event->y);
 
 	wlr_cursor_move(server->cursor, server->device, event->delta_x,
 	    event->delta_y);
@@ -2040,7 +2049,7 @@ server_cursor_motion_absolute(struct wl_listener *listener, void *data)
 	if (server->locked)
 		return;
 
-	dbg_printf("%s: dx dy %f %f\n", __func__, event->x, event->y);
+	dprintf("%s: dx dy %f %f\n", __func__, event->x, event->y);
 
 	wlr_cursor_warp_absolute(server->cursor, server->device, event->x,
 	    event->y);
