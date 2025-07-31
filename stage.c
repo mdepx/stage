@@ -659,9 +659,7 @@ view_set_slot(struct stage_view *view)
 
 	dprintf("app id %s\n", app_id);
 
-	if (strcmp(app_id, "foot") == 0 ||
-	    strcmp(app_id, "XTerm") == 0 ||
-	    strcmp(app_id, "URxvt") == 0) {
+	if (strcmp(app_id, "foot") == 0) {
 		for (i = 0; i < nslots; i++) {
 			slot = &slots[i];
 			if ((slot->flags & SLOT_NEW_WINDOW) == 0)
