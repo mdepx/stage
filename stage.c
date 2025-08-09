@@ -183,6 +183,7 @@ struct stage_view {
 	int maxverted;
 	int maximized;
 	struct wlr_scene_rect *rect[4];	/* borders */
+	struct wlr_scene_rect *bg_rect; /* background */
 	bool was_focused;
 
 	struct wlr_session_lock_surface_v1 *lock_surface;
@@ -447,9 +448,14 @@ create_borders(struct stage_view *view)
 {
 	int i;
 
+	/* Borders. */
 	for (i = 0; i < 4; i++)
 		view->rect[i] = wlr_scene_rect_create(view->scene_tree, 0, 0,
 		    color_default);
+
+	/* Background rectangle. */
+	view->bg_rect = wlr_scene_rect_create(view->scene_tree, 0, 0,
+	    (float[4]){ 0.0f, 0.0f, 0.0f, 1.0f }); /* RGBA */
 }
 
 static void
@@ -472,6 +478,11 @@ update_borders(struct stage_view *view)
 	/* right */
 	wlr_scene_node_set_position(&view->rect[3]->node, view->w - 1, 0);
 	wlr_scene_rect_set_size(view->rect[3], 1, view->h);
+
+	/* background rectangle */
+	wlr_scene_node_set_position(&view->bg_rect->node, 0, 0);
+	wlr_scene_rect_set_size(view->bg_rect, view->w, view->h);
+	wlr_scene_node_lower_to_bottom(&view->bg_rect->node);
 
 	wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
 	wlr_xdg_toplevel_set_size(view->xdg_toplevel, view->w, view->h);
