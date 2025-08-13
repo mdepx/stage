@@ -1,6 +1,5 @@
 /*-
- * Copyright (c) 2023-2024 Ruslan Bukin <br@bsdpad.com>
- * All rights reserved.
+ * Copyright (c) 2023-2025 Ruslan Bukin <br@bsdpad.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -61,7 +60,7 @@ struct ws {
 	struct wl_buffer *wl_buffer;
 	struct wl_compositor *wl_compositor;
 	struct wl_display *wl_display;
-	struct wl_list ws_outputs;
+	struct ws_output *output;
 	struct wl_registry *wl_registry;
 	struct wl_shm *wl_shm;
 	struct zwlr_layer_shell_v1 *wlr_layer_shell;
@@ -180,11 +179,19 @@ handle_global(void *data, struct wl_registry *registry, uint32_t name,
 			return;
 		}
 
+		if (app->output != NULL) {
+			printf("No support for multiple outputs\n");
+			return;
+		}
+
 		output = calloc(1, sizeof(struct ws_output));
+		app->output = output;
 		output->wl_output = wl_registry_bind(registry, name,
 		    &wl_output_interface, version);
+		output->ws_surface = ws_surface_create(app,
+		    output->wl_output);
+		wl_surface_commit(output->ws_surface->wl_surface);
 
-		wl_list_insert(&app->ws_outputs, &output->link);
 	} else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0)
 		app->wlr_layer_shell = wl_registry_bind(registry, name,
 		    &zwlr_layer_shell_v1_interface, 1);
@@ -202,28 +209,13 @@ ws_flush(struct ws *app)
 {
 	struct ws_output *output;
 
-	wl_list_for_each (output, &app->ws_outputs, link) {
-		if (output->ws_surface != NULL) 
-				continue;
+	output = app->output;
 
-		output->ws_surface = ws_surface_create(app,
-		    output->wl_output);
-		wl_surface_commit(output->ws_surface->wl_surface);
-	}
-
-	if (wl_display_roundtrip(app->wl_display) < 0)
-		printf("wl_display_roundtrip failed");
-
-	wl_list_for_each (output, &(app->ws_outputs), link) {
-		if (output->ws_surface == NULL)
-			continue;
-
-		wl_surface_attach(output->ws_surface->wl_surface,
-		    app->wl_buffer, 0, 0);
-		wl_surface_damage(output->ws_surface->wl_surface, 0, 0,
-		    INT32_MAX, INT32_MAX);
-		wl_surface_commit(output->ws_surface->wl_surface);
-	}
+	wl_surface_attach(output->ws_surface->wl_surface,
+	    app->wl_buffer, 0, 0);
+	wl_surface_damage(output->ws_surface->wl_surface, 0, 0,
+	    INT32_MAX, INT32_MAX);
+	wl_surface_commit(output->ws_surface->wl_surface);
 
 	if (wl_display_roundtrip(app->wl_display) < 1)
 		printf("wl_display_roundtrip failed");
@@ -363,11 +355,6 @@ ws_startup_app(struct ws *app)
 	image = ws_image_create(app->name, app->width, app->height);
 
 	app->image = image;
-
-	wl_list_init(&app->ws_outputs);
-	output = calloc(1, sizeof(struct ws_output));
-	output->wl_output = NULL;
-	wl_list_insert(&app->ws_outputs, &output->link);
 
 	const static struct wl_registry_listener wl_registry_listener = {
 		.global = handle_global,
