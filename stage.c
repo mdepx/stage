@@ -149,6 +149,12 @@ struct stage_server {
 	struct wl_listener output_manager_test;
 
 	bool locked;
+
+	struct wlr_server_decoration_manager *server_decoration_manager;
+	struct wl_listener server_decoration;
+
+	struct wlr_xdg_decoration_manager_v1 *xdg_decoration_manager;
+	struct wl_listener xdg_decoration;
 };
 
 struct stage_output {
@@ -2202,6 +2208,26 @@ seat_request_set_primary_selection(struct wl_listener *listener, void *data)
 	    event->serial);
 }
 
+static void
+handle_server_decoration(struct wl_listener *listener, void *data)
+{
+	struct wlr_server_decoration *wlr_deco;
+
+	printf("%s\n", __func__);
+
+	wlr_deco = data;
+};
+
+static void
+handle_xdg_decoration(struct wl_listener *listener, void *data)
+{
+	struct wlr_xdg_toplevel_decoration_v1 *wlr_deco;
+
+	printf("%s\n", __func__);
+
+	wlr_deco = data;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -2331,10 +2357,24 @@ main(int argc, char *argv[])
 	wl_signal_add(&server.seat->events.request_set_primary_selection,
 	    &server.request_set_primary_selection);
 
+	/* Server decoration */
+	server.server_decoration_manager =
+	    wlr_server_decoration_manager_create(server.wl_disp);
 	wlr_server_decoration_manager_set_default_mode(
-	    wlr_server_decoration_manager_create(server.wl_disp),
+	    server.server_decoration_manager,
 	    WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
-	wlr_xdg_decoration_manager_v1_create(server.wl_disp);
+	wl_signal_add(
+	    &server.server_decoration_manager->events.new_decoration,
+	    &server.server_decoration);
+	server.server_decoration.notify = handle_server_decoration;
+
+	/* XDG decoration */
+	server.xdg_decoration_manager =
+	    wlr_xdg_decoration_manager_v1_create(server.wl_disp);
+	wl_signal_add(
+	    &server.xdg_decoration_manager->events.new_toplevel_decoration,
+	    &server.xdg_decoration);
+	server.xdg_decoration.notify = handle_xdg_decoration;
 
 	server.lock = wlr_session_lock_manager_v1_create(server.wl_disp);
 	server.new_lock.notify = new_lock;
