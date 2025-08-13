@@ -1719,7 +1719,6 @@ handle_set_app_id(struct wl_listener *listener, void *data)
 
 	app_id = view->xdg_toplevel->app_id;
 
-	create_borders(view);
 	view_set_slot(view);
 }
 
@@ -1758,6 +1757,8 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	    &view->server->scene->tree, xdg_toplevel->base);
 	view->scene_tree->node.data = view;
 	xdg_toplevel->base->data = view->scene_tree;
+
+	create_borders(view);
 
 	view->map.notify = xdg_toplevel_map;
 	wl_signal_add(&xdg_toplevel->base->surface->events.map, &view->map);
