@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 #include <pixman.h>
 #include <tllist.h>
@@ -281,6 +282,43 @@ draw_numbers(struct ws *app, char *buf)
 
 		voffs += 120;
 	}
+
+	ws_flush(app);
+}
+
+static char time_last[128];
+
+void
+ws_draw_time(struct ws *app)
+{
+	time_t now = time(NULL);
+	struct tm *t = localtime(&now);
+	char buffer[128];
+	int xpos;
+	int ypos;
+	char c;
+	int i;
+	int font_w;
+
+	strftime(buffer, sizeof(buffer), "%H:%M", t);
+	if (strcmp(buffer, time_last) == 0)
+		return;
+
+	font_list = "ubuntu mono:size=50";
+	ws_font_init();
+
+	xpos = 0;
+	ypos = 1080 * 2 - 50;
+
+	font_w = 24;
+
+	for (i = 0; i < strlen(buffer); i++) {
+		c = buffer[i];
+		ws_image_draw(app->image, &fg, c, xpos, ypos);
+		xpos += font_w;
+	}
+
+	//strcpy(time_last, buffer);
 
 	ws_flush(app);
 }

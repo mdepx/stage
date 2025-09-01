@@ -219,6 +219,8 @@ ws_main_loop(struct ws *app)
 		else if (buf[0] == 'C')
 			draw_cursor_xy(app, &buf[1]);
 #endif
+		ws_draw_time(app);
+
 	} while (len > 0);
 
 	close(fd);
