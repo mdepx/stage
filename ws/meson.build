@@ -15,6 +15,7 @@ wayland_client = dependency('wayland-client')
 rt = cc.find_library('rt')
 pixman = dependency('pixman-1')
 fcft = dependency('fcft')
+epoll = dependency('epoll-shim')
 
 wayland_scanner_code = generator(
   wayland_scanner,
@@ -55,7 +56,7 @@ endforeach
 
 ws_sources = ['src/image.c', 'src/main.c']
 ws_dependencies = [wayland_client, wlr_layer_shell_unstable_v1, xdg_shell,
-  pixman, fcft]
+  pixman, fcft, epoll]
 
 executable(
   'ws',

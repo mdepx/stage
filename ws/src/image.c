@@ -249,7 +249,7 @@ draw_numbers(struct ws *app, char *buf)
 	voffs = 100;
 	oldflag = newflag = 0;
 
-	ws_image_clear(app->image, &bg, 0, 0, 150, app->height);
+	ws_image_clear(app->image, &bg, 0, 0, 150, app->height - 100);
 
 	while (1) {
 		c = buf[i++];
@@ -312,13 +312,15 @@ ws_draw_time(struct ws *app)
 
 	font_w = 24;
 
+	ws_image_clear(app->image, &bg, xpos, ypos, 200, 50);
+
 	for (i = 0; i < strlen(buffer); i++) {
 		c = buffer[i];
 		ws_image_draw(app->image, &fg, c, xpos, ypos);
 		xpos += font_w;
 	}
 
-	//strcpy(time_last, buffer);
+	strcpy(time_last, buffer);
 
 	ws_flush(app);
 }

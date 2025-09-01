@@ -26,7 +26,7 @@
 #ifndef _IMAGE_H_
 #define _IMAGE_H_
 
-#define	MAX_WIDTH		250
+#define	MAX_WIDTH		400
 #define	MAX_HEIGHT		(1080 * 2)
 #define	SERVER_SOCK_FILE	"/tmp/stage.sock"
 

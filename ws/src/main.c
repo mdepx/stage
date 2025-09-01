@@ -25,6 +25,8 @@
 
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/timerfd.h>
+#include <sys/epoll.h>
 
 #include <errno.h>
 #include <stdio.h>
@@ -37,6 +39,8 @@
 
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "image.h"
+
+static int timer_fd;
 
 void
 layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
@@ -185,15 +189,33 @@ ws_flush(struct ws *app)
 		printf("wl_display_roundtrip failed");
 }
 
+static void
+timer_arm(int secs)
+{
+	struct itimerspec spec = {
+		.it_interval = {0},
+		.it_value = {
+			.tv_sec = secs,
+			.tv_nsec = 0
+		}
+	};
+	if (timerfd_settime(timer_fd, 0, &spec, NULL))
+		fprintf(stderr, "Failed to arm timer: %s\n", strerror(errno));
+}
+
 int
 ws_main_loop(struct ws *app)
 {
 	struct sockaddr_un addr;
 	struct sockaddr_un from;
+	uint64_t expirations;
 	socklen_t fromlen;
+	struct epoll_event caught;
+	int display_fd;
 	char buf[128];
 	int len;
 	int fd;
+	int n;
 
 	fromlen = sizeof(struct sockaddr_un);
 
@@ -209,19 +231,78 @@ ws_main_loop(struct ws *app)
 	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
 		perror("bind");
 
-	do {
-		len = recvfrom(fd, buf, 8192, 0, (struct sockaddr *)&from,
-		    &fromlen);
-		/* printf("recvfrom: %s, len %d\n", buf, len); */
-		if (buf[0] == 'W')
-			draw_numbers(app, &buf[1]);
-#if 0
-		else if (buf[0] == 'C')
-			draw_cursor_xy(app, &buf[1]);
-#endif
-		ws_draw_time(app);
+	int epoll = epoll_create1(EPOLL_CLOEXEC);
+	if (epoll < 0) {
+		fprintf(stderr, "Failed to start epoll\n");
+		return EXIT_FAILURE;
+	}
 
-	} while (len > 0);
+	/* Display */
+	display_fd = wl_display_get_fd(app->wl_display);
+	struct epoll_event epoll_display = {
+		.events = EPOLLIN,
+		.data = { .fd = display_fd },
+	};
+
+	if (epoll_ctl(epoll, EPOLL_CTL_ADD, display_fd, &epoll_display)) {
+		fprintf(stderr, "Failed to epoll display\n");
+		return EXIT_FAILURE;
+	}
+
+	wl_display_roundtrip(app->wl_display);
+
+	/* Timer */
+	timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
+	if (timer_fd < 0) {
+		fprintf(stderr, "Failed to start timer\n");
+		return EXIT_FAILURE;
+	}
+
+	struct epoll_event epoll_timer = {
+		.events = EPOLLIN,
+		.data = { .fd = timer_fd },
+	};
+
+	if (epoll_ctl(epoll, EPOLL_CTL_ADD, timer_fd, &epoll_timer)) {
+		fprintf(stderr, "Failed to epoll timer\n");
+		return EXIT_FAILURE;
+	}
+
+	timer_arm(1);
+
+	/* fd */
+	struct epoll_event epoll_net = {
+		.events = EPOLLIN,
+		.data = { .fd = fd },
+	};
+
+	if (epoll_ctl(epoll, EPOLL_CTL_ADD, fd, &epoll_net)) {
+		fprintf(stderr, "Failed to epoll net\n");
+		return EXIT_FAILURE;
+	}
+
+	while (epoll_wait(epoll, &caught, 1, -1)) {
+		if (caught.data.fd == display_fd) {
+			if (wl_display_dispatch(app->wl_display) == -1)
+				break;
+		}
+		if (caught.data.fd == timer_fd) {
+			n = read(timer_fd, &expirations, sizeof(expirations));
+			timer_arm(1);
+			ws_draw_time(app);
+		}
+		if (caught.data.fd == fd) {
+			len = recvfrom(fd, buf, 8192, 0,
+			    (struct sockaddr *)&from, &fromlen);
+			/* printf("recvfrom: %s, len %d\n", buf, len); */
+			if (buf[0] == 'W')
+				draw_numbers(app, &buf[1]);
+#if 0
+			else if (buf[0] == 'C')
+				draw_cursor_xy(app, &buf[1]);
+#endif
+		}
+	}
 
 	close(fd);
 
