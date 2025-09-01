@@ -39,6 +39,36 @@ struct ws_image {
 	void *pixman;
 };
 
+struct ws_surface {
+	struct zwlr_layer_surface_v1 *wlr_layer_surface;
+	struct wl_surface *wl_surface;
+};
+
+struct ws_output {
+	struct wl_list link;
+	struct wl_output *wl_output;
+	struct ws_surface *ws_surface;
+};
+
+struct ws {
+	struct ws_image *image;
+	struct wl_buffer *wl_buffer;
+	struct wl_compositor *wl_compositor;
+	struct wl_display *wl_display;
+	struct ws_output *output;
+	struct wl_registry *wl_registry;
+	struct wl_shm *wl_shm;
+	struct zwlr_layer_shell_v1 *wlr_layer_shell;
+	char *name;
+	int margin_top;
+	int margin_right;
+	int margin_bottom;
+	int margin_left;
+	int width;
+	int height;
+	int anchor;
+};
+
 struct ws_image *ws_image_create(char *name, size_t width, size_t height);
 void ws_image_destroy(struct ws_image *image);
 void ws_image_draw(struct ws_image *image, pixman_color_t *color, char c,

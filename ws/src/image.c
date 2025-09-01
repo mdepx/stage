@@ -36,11 +36,18 @@
 #include <tllist.h>
 #include <fcft/fcft.h>
 
+#include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "image.h"
 
 static const char *font_list = "ubuntu mono:size=120,xos4 Terminus:size=120";
 static struct fcft_font *font = NULL;
 static enum fcft_subpixel subpixel_mode = FCFT_SUBPIXEL_DEFAULT;
+
+static pixman_color_t fg = {0xffff, 0xffff, 0xffff, 0xffff};
+static pixman_color_t bg = {0x0000, 0x0000, 0x0000, 0xffff};
+static pixman_color_t mg = {0x4444, 0x4444, 0x4444, 0xffff};
+static pixman_color_t og = {0x9999, 0x9999, 0x9999, 0xffff};
+static pixman_color_t xy = {0x1fff, 0x1fff, 0x1fff, 0xffff};
 
 struct ws_image *
 ws_image_create(char *name, size_t width, size_t height)
@@ -187,4 +194,93 @@ ws_image_draw(struct ws_image *image, pixman_color_t *color,
 			    offset_x + g->x, offset_y + font->ascent - g->y,
 			    g->width, g->height);
 	}
+}
+
+void
+draw_cursor_xy(struct ws *app, char *buf)
+{
+	static pixman_color_t *color;
+	int voffs;
+	int i;
+	char c;
+
+	i = 0;
+	voffs = 0;
+
+	font_list = "ubuntu mono:size=120";
+	ws_font_init();
+
+	ws_image_clear(app->image, &bg, 150, 0, app->width-150, app->height);
+
+	while (1) {
+		c = buf[i++];
+
+		if (c == '\0')
+			break;
+
+		color = &xy;
+
+		if (c == ',')
+			ws_image_draw(app->image, color, ' ', 150, voffs);
+		else
+			ws_image_draw(app->image, color, c, 150, voffs);
+
+		voffs += 120;
+	}
+
+	ws_flush(app);
+}
+
+void
+draw_numbers(struct ws *app, char *buf)
+{
+	static pixman_color_t *color;
+	int oldflag;
+	int newflag;
+	int voffs;
+	int i;
+	char c;
+
+	font_list = "ubuntu mono:size=120";
+	ws_font_init();
+
+	i = 0;
+	voffs = 100;
+	oldflag = newflag = 0;
+
+	ws_image_clear(app->image, &bg, 0, 0, 150, app->height);
+
+	while (1) {
+		c = buf[i++];
+
+		if (c == '\0')
+			break;
+
+		if (c == '?') {
+			oldflag = 1;
+			continue;
+		}
+
+		if (c == '!') {
+			newflag = 1;
+			continue;
+		}
+
+		/* printf("c %c ws %d\n", c, ws); */
+
+		if (newflag) {
+			color = &fg;
+			newflag = 0;
+		} else if (oldflag) {
+			color = &og;
+			oldflag = 0;
+		} else
+			color = &mg;
+
+		ws_image_draw(app->image, color, c, 50, voffs);
+
+		voffs += 120;
+	}
+
+	ws_flush(app);
 }

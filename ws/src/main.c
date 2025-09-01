@@ -35,44 +35,8 @@
 
 #include <fcft/fcft.h>
 
-#include "image.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
-
-static pixman_color_t fg = {0xffff, 0xffff, 0xffff, 0xffff};
-static pixman_color_t bg = {0x0000, 0x0000, 0x0000, 0xffff};
-static pixman_color_t mg = {0x4444, 0x4444, 0x4444, 0xffff};
-static pixman_color_t og = {0x9999, 0x9999, 0x9999, 0xffff};
-static pixman_color_t xy = {0x1fff, 0x1fff, 0x1fff, 0xffff};
-
-struct ws_surface {
-	struct zwlr_layer_surface_v1 *wlr_layer_surface;
-	struct wl_surface *wl_surface;
-};
-
-struct ws_output {
-	struct wl_list link;
-	struct wl_output *wl_output;
-	struct ws_surface *ws_surface;
-};
-
-struct ws {
-	struct ws_image *image;
-	struct wl_buffer *wl_buffer;
-	struct wl_compositor *wl_compositor;
-	struct wl_display *wl_display;
-	struct ws_output *output;
-	struct wl_registry *wl_registry;
-	struct wl_shm *wl_shm;
-	struct zwlr_layer_shell_v1 *wlr_layer_shell;
-	char *name;
-	int margin_top;
-	int margin_right;
-	int margin_bottom;
-	int margin_left;
-	int width;
-	int height;
-	int anchor;
-};
+#include "image.h"
 
 void
 layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface,
@@ -219,89 +183,6 @@ ws_flush(struct ws *app)
 
 	if (wl_display_roundtrip(app->wl_display) < 1)
 		printf("wl_display_roundtrip failed");
-}
-
-static void
-draw_cursor_xy(struct ws *app, char *buf)
-{
-	static pixman_color_t *color;
-	int voffs;
-	int i;
-	char c;
-
-	i = 0;
-	voffs = 0;
-
-	ws_image_clear(app->image, &bg, 150, 0, app->width-150, app->height);
-
-	while (1) {
-		c = buf[i++];
-
-		if (c == '\0')
-			break;
-
-		color = &xy;
-
-		if (c == ',')
-			ws_image_draw(app->image, color, ' ', 150, voffs);
-		else
-			ws_image_draw(app->image, color, c, 150, voffs);
-
-		voffs += 120;
-	}
-
-	ws_flush(app);
-}
-
-static void
-draw_numbers(struct ws *app, char *buf)
-{
-	static pixman_color_t *color;
-	int oldflag;
-	int newflag;
-	int voffs;
-	int i;
-	char c;
-
-	i = 0;
-	voffs = 100;
-	oldflag = newflag = 0;
-
-	ws_image_clear(app->image, &bg, 0, 0, 150, app->height);
-
-	while (1) {
-		c = buf[i++];
-
-		if (c == '\0')
-			break;
-
-		if (c == '?') {
-			oldflag = 1;
-			continue;
-		}
-
-		if (c == '!') {
-			newflag = 1;
-			continue;
-		}
-
-		/* printf("c %c ws %d\n", c, ws); */
-
-		if (newflag) {
-			color = &fg;
-			newflag = 0;
-		} else if (oldflag) {
-			color = &og;
-			oldflag = 0;
-		} else
-			color = &mg;
-
-		ws_image_draw(app->image, color, c, 50, voffs);
-
-		voffs += 120;
-	}
-
-	ws_flush(app);
 }
 
 int
@@ -451,7 +332,6 @@ main(int argc, char **argv)
 	app->anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
 
 	fcft_init(FCFT_LOG_COLORIZE_AUTO, false, FCFT_LOG_CLASS_DEBUG);
-	ws_font_init();
 
 	ws_startup_app(app);
 	ws_main_loop(app);
