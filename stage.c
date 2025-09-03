@@ -969,13 +969,13 @@ static void
 notify_ws_change(int oldws, int newws)
 {
 	struct stage_workspace *ws;
-	char str[32];
+	char str[256];
 	char *cur;
 	int error;
 	int count;
 	int i;
 
-	memset(str, 0, 32);
+	memset(str, 0, 256);
 
 	str[0] = 'W';
 
