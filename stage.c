@@ -932,7 +932,8 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 	struct stage_view *view;
 
 	xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
-	assert(xdg_surface != NULL);
+	if (xdg_surface == NULL)
+		return (NULL);
 
 	scene_node = xdg_surface->data;
 
@@ -1176,6 +1177,9 @@ maxvert(struct stage_server *server)
 		return;
 
 	view = view_from_surface(server, surface);
+	if (view == NULL)
+		return;
+
 	if (view->maxverted) {
 		unmaxvert(view);
 		return;
@@ -1228,6 +1232,9 @@ maximize(struct stage_server *server)
 		return;
 
 	view = view_from_surface(server, surface);
+	if (view == NULL)
+		return;
+
 	if (view->maximized) {
 		unmaximize(view);
 		return;
@@ -1282,7 +1289,7 @@ switch_light(char *arg)
 	char *p;
 	int pid;
 
-	p = "/usr/local/bin/python3.10";
+	p = "/usr/local/bin/python";
 
 	if (stat(p, &st) == -1)
 		return;
