@@ -162,6 +162,7 @@ struct stage_output {
 	struct wlr_output *wlr_output;
 	struct wl_listener frame;
 	struct wl_listener request_state;
+	struct wl_listener destroy;
 	int curws;
 };
 
@@ -1615,6 +1616,19 @@ output_request_state(struct wl_listener *listener, void *data)
 }
 
 static void
+output_destroy(struct wl_listener *listener, void *data)
+{
+	const struct wlr_output_event_destroy *event;
+	struct stage_output *output;
+
+	printf("%s\n", __func__);
+
+	output = wl_container_of(listener, output, destroy);
+
+	event = data;
+}
+
+static void
 server_new_output(struct wl_listener *listener, void *data)
 {
 	struct wlr_output *wlr_output;
@@ -1665,6 +1679,9 @@ server_new_output(struct wl_listener *listener, void *data)
 	output->frame.notify = output_frame;
 	wl_signal_add(&wlr_output->events.frame, &output->frame);
 	wl_list_insert(&server->outputs, &output->link);
+
+	output->destroy.notify = output_destroy;
+	wl_signal_add(&wlr_output->events.destroy, &output->destroy);
 
 	output->request_state.notify = output_request_state;
 	wl_signal_add(&wlr_output->events.request_state,
