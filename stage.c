@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2022-2025 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2022-2026 Ruslan Bukin <br@bsdpad.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,12 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/wait.h>
+
 #include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include <linux/input-event-codes.h>
 #include <wlr/backend.h>
@@ -2263,13 +2266,31 @@ handle_xdg_decoration(struct wl_listener *listener, void *data)
 	wlr_deco = data;
 }
 
+static void
+sig_chld(int signo)
+{
+	int s;
+
+	wait(&s);
+
+	if (WIFEXITED(s))
+		printf("child exited\n");
+}
+
 int
 main(int argc, char *argv[])
 {
 	struct stage_server server;
+	struct sigaction act;
 	const char *socket;
 	int error;
 	int i;
+
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = 0;
+	act.sa_handler = sig_chld;
+	if (sigaction(SIGCHLD, &act, NULL) < 0)
+		return (3);
 
 	wlr_log_init(WLR_DEBUG, NULL);
 
