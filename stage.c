@@ -2282,6 +2282,7 @@ sig_chld(int signo)
 int
 main(int argc, char *argv[])
 {
+	struct wl_event_loop *loop;
 	struct stage_server server;
 	struct sigaction act;
 	const char *socket;
@@ -2299,7 +2300,9 @@ main(int argc, char *argv[])
 	memset(&server, 0, sizeof(struct stage_server));
 
 	server.wl_disp = wl_display_create();
-	server.backend = wlr_backend_autocreate(wl_display_get_event_loop(server.wl_disp), 0);
+
+	loop = wl_display_get_event_loop(server.wl_disp);
+	server.backend = wlr_backend_autocreate(loop, 0);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
 
