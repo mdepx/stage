@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2022-2025 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2022-2026 Ruslan Bukin <br@bsdpad.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,12 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/wait.h>
+
 #include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include <linux/input-event-codes.h>
 #include <wlr/backend.h>
@@ -933,8 +936,8 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 	struct stage_view *view;
 
 	xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
-	/* TODO: panics here */
-	assert(xdg_surface != NULL);
+	if (xdg_surface == NULL)
+		return (NULL);
 
 	scene_node = xdg_surface->data;
 
@@ -1178,6 +1181,9 @@ maxvert(struct stage_server *server)
 		return;
 
 	view = view_from_surface(server, surface);
+	if (view == NULL)
+		return;
+
 	if (view->maxverted) {
 		unmaxvert(view);
 		return;
@@ -1230,6 +1236,9 @@ maximize(struct stage_server *server)
 		return;
 
 	view = view_from_surface(server, surface);
+	if (view == NULL)
+		return;
+
 	if (view->maximized) {
 		unmaximize(view);
 		return;
@@ -1284,7 +1293,7 @@ switch_light(char *arg)
 	char *p;
 	int pid;
 
-	p = "/usr/local/bin/python3.10";
+	p = "/usr/local/bin/python";
 
 	if (stat(p, &st) == -1)
 		return;
@@ -1428,8 +1437,10 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 		if (sym == XKB_KEY_Print) {
 			if (fork() == 0)
 				execl("/bin/sh", "/bin/sh", "-c",
-				    "/usr/local/bin/slurp", "|", "/usr/local/bin/grim", "-g",
-				    "-", "-", "|", "/usr/local/bin/wl-copy", NULL);
+				    "/usr/local/bin/slurp", "|",
+				    "/usr/local/bin/grim", "-g",
+				    "-", "-", "|", "/usr/local/bin/wl-copy",
+				    NULL);
 			handled = true;
 		}
 	}
@@ -2257,20 +2268,41 @@ handle_xdg_decoration(struct wl_listener *listener, void *data)
 	wlr_deco = data;
 }
 
+static void
+sig_chld(int signo)
+{
+	int s;
+
+	wait(&s);
+
+	if (WIFEXITED(s))
+		printf("child exited\n");
+}
+
 int
 main(int argc, char *argv[])
 {
+	struct wl_event_loop *loop;
 	struct stage_server server;
+	struct sigaction act;
 	const char *socket;
 	int error;
 	int i;
+
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = 0;
+	act.sa_handler = sig_chld;
+	if (sigaction(SIGCHLD, &act, NULL) < 0)
+		return (3);
 
 	wlr_log_init(WLR_DEBUG, NULL);
 
 	memset(&server, 0, sizeof(struct stage_server));
 
 	server.wl_disp = wl_display_create();
-	server.backend = wlr_backend_autocreate(wl_display_get_event_loop(server.wl_disp), 0);
+
+	loop = wl_display_get_event_loop(server.wl_disp);
+	server.backend = wlr_backend_autocreate(loop, 0);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
 
