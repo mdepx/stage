@@ -933,6 +933,7 @@ view_from_surface(struct stage_server *server, struct wlr_surface *surface)
 	struct stage_view *view;
 
 	xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
+	/* TODO: panics here */
 	assert(xdg_surface != NULL);
 
 	scene_node = xdg_surface->data;
@@ -2003,7 +2004,7 @@ cursor_focus(struct stage_server *server, uint32_t time)
 	    &surface, &sx, &sy);
 	if (!view)
 		wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr,
-		    "left_ptr");
+		    "pointer");
 
 	if (!view && surface) {
 		ls = wlr_layer_surface_v1_try_from_wlr_surface(surface);
@@ -2341,7 +2342,7 @@ main(int argc, char *argv[])
 	wlr_virtual_keyboard_manager_v1_create(server.wl_disp);
 #endif
 
-	server.cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
+	server.cursor_mgr = wlr_xcursor_manager_create("Adwaita", 40);
 	wlr_xcursor_manager_load(server.cursor_mgr, 1);
 
 	server.cursor_motion.notify = server_cursor_motion;
