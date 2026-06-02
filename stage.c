@@ -2431,7 +2431,7 @@ main(int argc, char *argv[])
 
 	/* XDG decoration */
 	server.xdg_decoration_manager =
-	    wlr_xdg_decoration_manager_v1_create(server.wl_disp);
+	    wlr_xdg_decoration_manager_v1_create(server.wl_disp, 2);
 	wl_signal_add(
 	    &server.xdg_decoration_manager->events.new_toplevel_decoration,
 	    &server.xdg_decoration);
