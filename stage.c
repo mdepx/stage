@@ -2015,7 +2015,7 @@ cursor_focus(struct stage_server *server, uint32_t time)
 	    &surface, &sx, &sy);
 	if (!view)
 		wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr,
-		    "left_ptr");
+		    "pointer");
 
 	if (!view && surface) {
 		ls = wlr_layer_surface_v1_try_from_wlr_surface(surface);
@@ -2378,7 +2378,7 @@ main(int argc, char *argv[])
 	wlr_virtual_keyboard_manager_v1_create(server.wl_disp);
 #endif
 
-	server.cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
+	server.cursor_mgr = wlr_xcursor_manager_create("Adwaita", 40);
 	wlr_xcursor_manager_load(server.cursor_mgr, 1);
 
 	server.cursor_motion.notify = server_cursor_motion;
@@ -2435,7 +2435,7 @@ main(int argc, char *argv[])
 
 	/* XDG decoration */
 	server.xdg_decoration_manager =
-	    wlr_xdg_decoration_manager_v1_create(server.wl_disp);
+	    wlr_xdg_decoration_manager_v1_create(server.wl_disp, 2);
 	wl_signal_add(
 	    &server.xdg_decoration_manager->events.new_toplevel_decoration,
 	    &server.xdg_decoration);
