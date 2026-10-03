@@ -2121,6 +2121,8 @@ server_cursor_button(struct wl_listener *listener, void *data)
 	struct stage_view *view;
 	double x,y;
 
+	surface = NULL;
+
 	view = desktop_view_at(server, server->cursor->x, server->cursor->y,
 	    &surface, &sx, &sy);
 
@@ -2135,6 +2137,8 @@ server_cursor_button(struct wl_listener *listener, void *data)
 
 	if (!view) {
 		server->cursor_mode = STAGE_CURSOR_PASSTHROUGH;
+		wlr_seat_pointer_notify_button(server->seat,
+		    event->time_msec, event->button, event->state);
 		return;
 	}
 
@@ -2295,7 +2299,7 @@ main(int argc, char *argv[])
 	if (sigaction(SIGCHLD, &act, NULL) < 0)
 		return (3);
 
-	wlr_log_init(WLR_DEBUG, NULL);
+	wlr_log_init(WLR_SILENT, NULL);
 
 	memset(&server, 0, sizeof(struct stage_server));
 
