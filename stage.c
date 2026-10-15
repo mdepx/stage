@@ -757,8 +757,10 @@ xdg_toplevel_map(struct wl_listener *listener, void *data)
 		view_align(view);
 
 	view_geometry(view, &geom);
+#if 0
 	view->w = geom.width;
 	view->h = geom.height;
+#endif
 
 	if (view->type == VIEW_SLOCK)
 		return;
