@@ -508,7 +508,7 @@ view_geometry(struct stage_view *view, struct wlr_box *geom)
 		//geom->width = 100;
 		//geom->height = 100;
 	} else
-		geom = &view->xdg_toplevel->base->geometry;
+		*geom = view->xdg_toplevel->base->geometry;
 }
 
 static void
@@ -586,7 +586,8 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 				    previous->toplevel, false);
 			scene_node = previous->data;
 			prev_view = scene_node->data;
-			view_set_borders_active(prev_view, false);
+			if (prev_view != NULL)
+				view_set_borders_active(prev_view, false);
 		}
 	}
 
@@ -1299,8 +1300,10 @@ switch_light(char *arg)
 		return;
 
 	pid = fork();
-	if (pid == 0)
+	if (pid == 0) {
 		execl(p, p, "/home/br/lights/test_client.py", arg, NULL);
+		_exit(127);
+	}
 }
 
 static bool
@@ -1382,8 +1385,10 @@ handle_keybinding(struct stage_server *server,
 		switch_light("3");
 		break;
 	case XKB_KEY_Return:
-		if (fork() == 0)
+		if (fork() == 0) {
 			execl("/bin/sh", "/bin/sh", "-c", terminal, NULL);
+			_exit(127);
+		}
 		break;
 	default:
 		return (false);
@@ -1415,7 +1420,8 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 	keycode = event->keycode + 8;
 	nsyms = xkb_state_key_get_syms(kb->xkb_state, keycode, &syms);
 
-	assert(nsyms > 0);
+	if (nsyms <= 0)
+		return;
 
 	/* TODO: Handle first sym only. */
 	sym = syms[0];
@@ -1435,12 +1441,14 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 			handled = handle_keybinding2(server, event, sym);
 
 		if (sym == XKB_KEY_Print) {
-			if (fork() == 0)
+			if (fork() == 0) {
 				execl("/bin/sh", "/bin/sh", "-c",
 				    "/usr/local/bin/slurp", "|",
 				    "/usr/local/bin/grim", "-g",
 				    "-", "-", "|", "/usr/local/bin/wl-copy",
 				    NULL);
+				_exit(127);
+			}
 			handled = true;
 		}
 	}
@@ -2277,10 +2285,10 @@ sig_chld(int signo)
 {
 	int s;
 
-	wait(&s);
-
-	if (WIFEXITED(s))
-		printf("child exited\n");
+	while (waitpid(-1, &s, WNOHANG) > 0) {
+		if (WIFEXITED(s))
+			printf("child exited\n");
+	}
 }
 
 int
@@ -2470,11 +2478,15 @@ main(int argc, char *argv[])
 	}
 
 	setenv("WAYLAND_DISPLAY", socket, true);
-	if (fork() == 0)
+	if (fork() == 0) {
 		execl("/bin/sh", "/bin/sh", "-c", terminal, NULL);
+		_exit(127);
+	}
 #ifndef STAGE_DEV
-	if (fork() == 0)
+	if (fork() == 0) {
 		execl("/bin/sh", "/bin/sh", "-c", ws, NULL);
+		_exit(127);
+	}
 #endif
 	wl_display_run(server.wl_disp);
 
