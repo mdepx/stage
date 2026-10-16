@@ -1766,12 +1766,26 @@ server_new_output(struct wl_listener *listener, void *data)
 }
 
 static void
+view_ungrab(struct stage_view *view)
+{
+	struct stage_server *server;
+
+	server = view->server;
+
+	if (server->grabbed_view == view) {
+		server->grabbed_view = NULL;
+		server->cursor_mode = STAGE_CURSOR_PASSTHROUGH;
+	}
+}
+
+static void
 xdg_toplevel_unmap(struct wl_listener *listener, void *data)
 {
 	struct stage_view *view;
 
 	view = wl_container_of(listener, view, unmap);
 
+	view_ungrab(view);
 	wl_list_remove(&view->link);
 }
 
@@ -1799,6 +1813,7 @@ xdg_toplevel_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&view->request_resize.link);
 	wl_list_remove(&view->set_app_id.link);
 
+	view_ungrab(view);
 	free(view);
 }
 
@@ -2106,6 +2121,10 @@ process_cursor_motion(struct stage_server *server, uint32_t time)
 	double sx, sy;
 
 	dprintf("%s: mode %d\n", __func__, server->cursor_mode);
+
+	if (server->cursor_mode != STAGE_CURSOR_PASSTHROUGH &&
+	    server->grabbed_view == NULL)
+		server->cursor_mode = STAGE_CURSOR_PASSTHROUGH;
 
 	switch (server->cursor_mode) {
 	case STAGE_CURSOR_MOVE:
