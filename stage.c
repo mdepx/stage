@@ -264,7 +264,45 @@ struct stage_keyboard {
 	struct wl_listener modifiers;
 	struct wl_listener key;
 	struct wl_listener destroy;
+	/* Keys whose press was a binding: their release is eaten too. */
+#define	N_EATEN_KEYS	32
+	uint32_t eaten[N_EATEN_KEYS];
+	int neaten;
 };
+
+static int
+key_eaten_find(struct stage_keyboard *keyboard, uint32_t keycode)
+{
+	int i;
+
+	for (i = 0; i < keyboard->neaten; i++)
+		if (keyboard->eaten[i] == keycode)
+			return (i);
+
+	return (-1);
+}
+
+static bool
+key_eaten_release(struct stage_keyboard *keyboard, uint32_t keycode)
+{
+	int i;
+
+	i = key_eaten_find(keyboard, keycode);
+	if (i < 0)
+		return (false);
+
+	keyboard->eaten[i] = keyboard->eaten[--keyboard->neaten];
+
+	return (true);
+}
+
+static void
+key_eaten_press(struct stage_keyboard *keyboard, uint32_t keycode)
+{
+
+	if (keyboard->neaten < N_EATEN_KEYS)
+		keyboard->eaten[keyboard->neaten++] = keycode;
+}
 
 struct stage_popup {
 	struct stage_server *server;
@@ -686,15 +724,31 @@ view_surface(struct stage_view *view)
 static void
 keyboard_enter(struct wlr_seat *seat, struct wlr_surface *surface)
 {
+	uint32_t keycodes[WLR_KEYBOARD_KEYS_CAP];
+	struct stage_keyboard *keyboard;
 	struct wlr_keyboard *kb;
+	size_t i, n;
 
 	/* There may be no keyboard attached to the seat. */
 	kb = wlr_seat_get_keyboard(seat);
-	if (kb != NULL)
-		wlr_seat_keyboard_notify_enter(seat, surface, kb->keycodes,
-		    kb->num_keycodes, &kb->modifiers);
-	else
+	if (kb == NULL) {
 		wlr_seat_keyboard_notify_enter(seat, surface, NULL, 0, NULL);
+		return;
+	}
+
+	/*
+	 * Leave out keys pressed for a binding: the client would never
+	 * see them released.
+	 */
+	keyboard = kb->data;
+	n = 0;
+	for (i = 0; i < kb->num_keycodes; i++)
+		if (keyboard == NULL ||
+		    key_eaten_find(keyboard, kb->keycodes[i]) < 0)
+			keycodes[n++] = kb->keycodes[i];
+
+	wlr_seat_keyboard_notify_enter(seat, surface, keycodes, n,
+	    &kb->modifiers);
 }
 
 static void
@@ -901,6 +955,12 @@ xdg_toplevel_map(struct wl_listener *listener, void *data)
 
 	curws = &workspaces[view->server->curws];
 	wl_list_insert(&curws->views, &view->link);
+
+	/*
+	 * The view joins the shown workspace, but its node may have been
+	 * disabled when it was mapped on another workspace before.
+	 */
+	wlr_scene_node_set_enabled(&view->scene_tree->node, true);
 
 #if 0
 	enum wlr_edges edges = WLR_EDGE_NONE;
@@ -1577,8 +1637,6 @@ handle_keybinding2(struct stage_server *server,
 		break;
 	case XKB_KEY_Super_R:
 		break;
-	case WLR_MODIFIER_ALT:
-		break;
 	default:
 		return (false);
 	}
@@ -1784,6 +1842,12 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 			}
 			handled = true;
 		}
+
+		if (handled)
+			key_eaten_press(keyboard, event->keycode);
+	} else {
+		/* Don't send a release for a press the client never saw. */
+		handled = key_eaten_release(keyboard, event->keycode);
 	}
 
 	dprintf("sym %x\n", sym);
@@ -1806,6 +1870,7 @@ keyboard_handle_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&keyboard->destroy.link);
 	wl_list_remove(&keyboard->link);
 
+	keyboard->wlr_keyboard->data = NULL;
 	free(keyboard);
 }
 
@@ -1838,6 +1903,7 @@ server_new_keyboard(struct stage_server *server,
 	keyboard->device = device;
 	kb = wlr_keyboard_from_input_device(device);
 	keyboard->wlr_keyboard = kb;
+	kb->data = keyboard;
 
 	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 
