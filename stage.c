@@ -585,13 +585,26 @@ view_surface(struct stage_view *view)
 }
 
 static void
+keyboard_enter(struct wlr_seat *seat, struct wlr_surface *surface)
+{
+	struct wlr_keyboard *kb;
+
+	/* There may be no keyboard attached to the seat. */
+	kb = wlr_seat_get_keyboard(seat);
+	if (kb != NULL)
+		wlr_seat_keyboard_notify_enter(seat, surface, kb->keycodes,
+		    kb->num_keycodes, &kb->modifiers);
+	else
+		wlr_seat_keyboard_notify_enter(seat, surface, NULL, 0, NULL);
+}
+
+static void
 focus_view(struct stage_view *view, struct wlr_surface *surface)
 {
 	struct wlr_surface *prev_surface;
 	struct wlr_xdg_surface *previous;
 	struct wlr_scene_node *scene_node;
 	struct stage_server *server;
-	struct wlr_keyboard *kb;
 	struct wlr_seat *seat;
 	struct stage_view *prev_view;
 
@@ -605,11 +618,8 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 	if (server->locked && !view_is_slock(view))
 		return;
 
-	kb = wlr_seat_get_keyboard(seat);
-
 	if (view_is_slock(view)) {
-		wlr_seat_keyboard_notify_enter(seat, view_surface(view),
-		    kb->keycodes, kb->num_keycodes, &kb->modifiers);
+		keyboard_enter(seat, view_surface(view));
 		return;
 	}
 
@@ -634,8 +644,7 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 
 	wlr_xdg_toplevel_set_activated(view->xdg_toplevel, true);
 
-	wlr_seat_keyboard_notify_enter(seat, view_surface(view),
-	    kb->keycodes, kb->num_keycodes, &kb->modifiers);
+	keyboard_enter(seat, view_surface(view));
 	view_set_borders_active(view, true);
 }
 
@@ -2313,7 +2322,7 @@ server_cursor_button(struct wl_listener *listener, void *data)
 		return;
 	}
 
-	mods = wlr_keyboard_get_modifiers(keyboard);
+	mods = keyboard != NULL ? wlr_keyboard_get_modifiers(keyboard) : 0;
 	if ((mods & STAGE_MODIFIER) &&
 	    event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
 		server->grabbed_view = view;
