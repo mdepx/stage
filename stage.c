@@ -23,9 +23,12 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <assert.h>
+#include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
@@ -1442,9 +1445,13 @@ output_frame(struct wl_listener *listener, void *data)
 
 	scene = output->server->scene;
 	scene_output = wlr_scene_get_scene_output(scene, output->wlr_output);
-	wlr_scene_output_commit(scene_output, NULL);
 
-	if (output->server->lock_pending) {
+	/*
+	 * A failed commit has not shown the blanked frame, so it must not
+	 * count towards sending "locked".
+	 */
+	if (wlr_scene_output_commit(scene_output, NULL) &&
+	    output->server->lock_pending) {
 		output->lock_presented = true;
 		lock_check_presented(output->server);
 	}
@@ -1668,18 +1675,29 @@ stage_fork(void)
 static void
 switch_light(char *arg)
 {
+	char script[PATH_MAX];
+	const char *home;
 	struct stat st;
 	char *p;
 	int pid;
+	int n;
 
 	p = "/usr/local/bin/python";
 
 	if (stat(p, &st) == -1)
 		return;
 
+	home = getenv("HOME");
+	if (home == NULL || home[0] != '/')
+		return;
+	n = snprintf(script, sizeof(script), "%s/lights/test_client.py",
+	    home);
+	if (n < 0 || n >= sizeof(script) || stat(script, &st) == -1)
+		return;
+
 	pid = stage_fork();
 	if (pid == 0) {
-		execl(p, p, "/home/br/lights/test_client.py", arg, NULL);
+		execl(p, p, script, arg, NULL);
 		_exit(127);
 	}
 }
@@ -2077,7 +2095,12 @@ server_new_output(struct wl_listener *listener, void *data)
 	server = wl_container_of(listener, server, new_output);
 
 	wlr_output = data;
-	wlr_output_init_render(wlr_output, server->allocator, server->renderer);
+	if (!wlr_output_init_render(wlr_output, server->allocator,
+	    server->renderer)) {
+		printf("%s: %s: failed to init rendering\n", __func__,
+		    wlr_output->name);
+		return;
+	}
 
 	wlr_output_state_init(&state);
 	wlr_output_state_set_enabled(&state, true);
@@ -2100,7 +2123,9 @@ server_new_output(struct wl_listener *listener, void *data)
 		wlr_output_state_set_mode(&state, mode);
 
 	/* Atomically applies the new output state. */
-	wlr_output_commit_state(wlr_output, &state);
+	if (!wlr_output_commit_state(wlr_output, &state))
+		printf("%s: %s: failed to enable output\n", __func__,
+		    wlr_output->name);
 	wlr_output_state_finish(&state);
 
 	output = calloc(1, sizeof(struct stage_output));
@@ -2907,6 +2932,8 @@ main(int argc, char *argv[])
 	memset(&server, 0, sizeof(struct stage_server));
 
 	server.wl_disp = wl_display_create();
+	if (server.wl_disp == NULL)
+		return (1);
 
 	loop = wl_display_get_event_loop(server.wl_disp);
 
@@ -2915,11 +2942,24 @@ main(int argc, char *argv[])
 		return (3);
 
 	server.backend = wlr_backend_autocreate(loop, &server.session);
+	if (server.backend == NULL) {
+		printf("failed to create backend\n");
+		return (1);
+	}
+
 	server.renderer = wlr_renderer_autocreate(server.backend);
-	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
+	if (server.renderer == NULL ||
+	    !wlr_renderer_init_wl_display(server.renderer, server.wl_disp)) {
+		printf("failed to create renderer\n");
+		return (1);
+	}
 
 	server.allocator = wlr_allocator_autocreate(server.backend,
 	    server.renderer);
+	if (server.allocator == NULL) {
+		printf("failed to create allocator\n");
+		return (1);
+	}
 	server.compositor = wlr_compositor_create(server.wl_disp, 5,
 	    server.renderer);
 
