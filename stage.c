@@ -96,6 +96,11 @@ struct stage_server {
 	struct wlr_renderer *renderer;
 	struct wlr_allocator *allocator;
 	struct wlr_scene *scene;
+	/* Stacking order, bottom to top. */
+	struct wlr_scene_tree *layer_bottom;	/* background, bottom layers */
+	struct wlr_scene_tree *view_tree;	/* toplevels */
+	struct wlr_scene_tree *layer_top;	/* top, overlay layers */
+	struct wlr_scene_tree *lock_tree;	/* session lock surfaces */
 	struct wlr_presentation *presentation;
 	struct wl_listener new_output;
 	struct wl_listener new_xdg_surface;
@@ -409,7 +414,15 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
 	    &full_area.height);
 
-	output_layer = &server->scene->tree;
+	switch (layer_type) {
+	case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
+	case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
+		output_layer = server->layer_bottom;
+		break;
+	default:
+		output_layer = server->layer_top;
+		break;
+	}
 
 	scene_surface = wlr_scene_layer_surface_v1_create(output_layer,
 	    layer_surface);
@@ -564,6 +577,10 @@ focus_view(struct stage_view *view, struct wlr_surface *surface)
 
 	server = view->server;
 	seat = server->seat;
+
+	/* While locked, only the lock surface may receive focus. */
+	if (server->locked && !view_is_slock(view))
+		return;
 
 	kb = wlr_seat_get_keyboard(seat);
 
@@ -828,7 +845,7 @@ slock_new_surface(struct wl_listener *listener, void *data)
 	wl_signal_add(&lock_surface->events.destroy, &view->destroy);
 
 	/* TODO: destroy surface when not needed? */
-	surface = wlr_scene_surface_create(&server->scene->tree,
+	surface = wlr_scene_surface_create(server->lock_tree,
 	    lock_surface->surface);
 	view->scene_tree = NULL;
 	view->lock_surface->data = surface;
@@ -923,6 +940,12 @@ new_lock(struct wl_listener *listener, void *data)
 	wl_signal_add(&lock->events.destroy, &slock->destroy);
 
 	printf("%s\n", __func__);
+	/* Take input away from clients until the lock surface appears. */
+	wlr_seat_keyboard_notify_clear_focus(server->seat);
+	wlr_seat_pointer_notify_clear_focus(server->seat);
+	server->cursor_mode = STAGE_CURSOR_PASSTHROUGH;
+	server->grabbed_view = NULL;
+
 	wlr_session_lock_v1_send_locked(lock);
 	server->active_lock = slock;
 	server->locked = true;
@@ -1834,7 +1857,7 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	view->server = server;
 	view->xdg_toplevel = xdg_toplevel;
 	view->scene_tree = wlr_scene_xdg_surface_create(
-	    &view->server->scene->tree, xdg_toplevel->base);
+	    view->server->view_tree, xdg_toplevel->base);
 	view->scene_tree->node.data = view;
 	xdg_toplevel->base->data = view->scene_tree;
 
@@ -2386,6 +2409,12 @@ main(int argc, char *argv[])
 	server.scene = wlr_scene_create();
 	server.scene_layout = wlr_scene_attach_output_layout(server.scene,
 	    server.output_layout);
+
+	/* Created in stacking order: later trees are drawn on top. */
+	server.layer_bottom = wlr_scene_tree_create(&server.scene->tree);
+	server.view_tree = wlr_scene_tree_create(&server.scene->tree);
+	server.layer_top = wlr_scene_tree_create(&server.scene->tree);
+	server.lock_tree = wlr_scene_tree_create(&server.scene->tree);
 
 #if 0
 	struct wlr_scene_tree *tree;

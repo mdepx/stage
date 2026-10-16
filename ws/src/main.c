@@ -83,7 +83,7 @@ ws_surface_create(struct ws *app, struct wl_output *wl_output)
 	ws_surface->wlr_layer_surface =
 	    zwlr_layer_shell_v1_get_layer_surface(app->wlr_layer_shell,
 	    ws_surface->wl_surface, wl_output,
-	    ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "ws");
+	    ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, "ws");
 	if (ws_surface->wlr_layer_surface == NULL) {
 		printf("wlr_layer_shell_v1_get_layer_surface failed");
 		return (NULL);
