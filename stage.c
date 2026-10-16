@@ -81,7 +81,7 @@
 static const float color_focused[] = { 0.8, 0.4, 0.1, 0.1 };
 static const float color_default[] = { 0.4, 0.4, 0.4, 0.1 };
 
-#define	SERVER_SOCK_FILE	"/tmp/stage.sock"
+#define	SERVER_SOCK_FILE	"stage.sock"	/* in $XDG_RUNTIME_DIR */
 
 enum stage_cursor_mode {
 	STAGE_CURSOR_PASSTHROUGH,
@@ -955,15 +955,24 @@ static void
 socket_send(char *str)
 {
 	struct sockaddr_un addr;
+	const char *rundir;
 	char send_msg[16];
 	int fd;
+	int n;
 
-	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
+	rundir = getenv("XDG_RUNTIME_DIR");
+	if (rundir == NULL || rundir[0] != '/')
 		return;
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strcpy(addr.sun_path, SERVER_SOCK_FILE);
+	n = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s/%s", rundir,
+	    SERVER_SOCK_FILE);
+	if (n < 0 || n >= sizeof(addr.sun_path))
+		return;
+
+	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
+		return;
 
 	sprintf(send_msg, "%s", str);
 

@@ -28,7 +28,7 @@
 
 #define	MAX_WIDTH		400
 #define	MAX_HEIGHT		(1080 * 2)
-#define	SERVER_SOCK_FILE	"/tmp/stage.sock"
+#define	SERVER_SOCK_FILE	"stage.sock"	/* in $XDG_RUNTIME_DIR */
 
 struct ws_image {
 	size_t width;

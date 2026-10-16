@@ -211,25 +211,41 @@ ws_main_loop(struct ws *app)
 	uint64_t expirations;
 	socklen_t fromlen;
 	struct epoll_event caught;
+	const char *rundir;
 	int display_fd;
 	char buf[128];
 	int len;
 	int fd;
 	int n;
 
-	fromlen = sizeof(struct sockaddr_un);
+	rundir = getenv("XDG_RUNTIME_DIR");
+	if (rundir == NULL || rundir[0] != '/') {
+		fprintf(stderr, "XDG_RUNTIME_DIR is not set\n");
+		return EXIT_FAILURE;
+	}
 
-	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
-		perror("socket");
-
-	memset(buf, 0, 128);
+	memset(buf, 0, sizeof(buf));
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strcpy(addr.sun_path, SERVER_SOCK_FILE);
-	unlink(SERVER_SOCK_FILE);
+	n = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s/%s", rundir,
+	    SERVER_SOCK_FILE);
+	if (n < 0 || n >= sizeof(addr.sun_path)) {
+		fprintf(stderr, "Socket path too long\n");
+		return EXIT_FAILURE;
+	}
 
-	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
+		perror("socket");
+		return EXIT_FAILURE;
+	}
+
+	unlink(addr.sun_path);
+
+	if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		perror("bind");
+		close(fd);
+		return EXIT_FAILURE;
+	}
 
 	int epoll = epoll_create1(EPOLL_CLOEXEC);
 	if (epoll < 0) {
@@ -292,8 +308,12 @@ ws_main_loop(struct ws *app)
 			ws_draw_time(app);
 		}
 		if (caught.data.fd == fd) {
-			len = recvfrom(fd, buf, 8192, 0,
+			fromlen = sizeof(from);
+			len = recvfrom(fd, buf, sizeof(buf) - 1, 0,
 			    (struct sockaddr *)&from, &fromlen);
+			if (len <= 0)
+				continue;
+			buf[len] = '\0';
 			/* printf("recvfrom: %s, len %d\n", buf, len); */
 			if (buf[0] == 'W')
 				draw_numbers(app, &buf[1]);
