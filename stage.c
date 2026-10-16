@@ -337,6 +337,8 @@ stage_layer_surface_create(struct wlr_scene_layer_surface_v1 *scene)
 	struct stage_layer_surface *surface;
 
 	surface = calloc(1, sizeof(*surface));
+	if (surface == NULL)
+		return (NULL);
 
 	surface->tree = scene->tree;
 	surface->scene = scene;
@@ -391,6 +393,8 @@ layer_shell_destroy(struct wl_listener *listener, void *data)
 
 	wl_list_remove(&surface->surface_commit.link);
 	wl_list_remove(&surface->surface_destroy.link);
+
+	free(surface);
 }
 
 void
@@ -451,6 +455,11 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	    layer_surface);
 
 	surface = stage_layer_surface_create(scene_surface);
+	if (surface == NULL) {
+		/* The scene surface goes away with the layer surface. */
+		wlr_layer_surface_v1_destroy(layer_surface);
+		return;
+	}
 
 	printf("%s: new surface %p\n", __func__, surface);
 
@@ -868,6 +877,8 @@ slock_destroy_view(struct wl_listener *listener, void *data)
 
 	wl_list_remove(&view->map.link);
 	wl_list_remove(&view->destroy.link);
+
+	free(view);
 }
 
 static void
@@ -902,8 +913,12 @@ slock_new_surface(struct wl_listener *listener, void *data)
 	server = slock->server;
 	lock = slock->lock;
 
-	view = malloc(sizeof(struct stage_view));
-	memset(view, 0, sizeof(struct stage_view));
+	view = calloc(1, sizeof(struct stage_view));
+	if (view == NULL) {
+		/* Outputs stay blanked by lock_bg. */
+		wl_resource_post_no_memory(lock_surface->resource);
+		return;
+	}
 	view->type = VIEW_SLOCK;
 	view->server = server;
 	view->lock_surface = lock_surface;
@@ -1617,6 +1632,8 @@ keyboard_handle_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&keyboard->key.link);
 	wl_list_remove(&keyboard->destroy.link);
 	wl_list_remove(&keyboard->link);
+
+	free(keyboard);
 }
 
 static void
@@ -1641,7 +1658,9 @@ server_new_keyboard(struct stage_server *server,
 
 	printf("%s\n", __func__);
 
-	keyboard = malloc(sizeof(struct stage_keyboard));
+	keyboard = calloc(1, sizeof(struct stage_keyboard));
+	if (keyboard == NULL)
+		return;
 	keyboard->server = server;
 	keyboard->device = device;
 	kb = wlr_keyboard_from_input_device(device);
@@ -1836,7 +1855,9 @@ server_new_output(struct wl_listener *listener, void *data)
 	wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);
 
-	output = malloc(sizeof(struct stage_output));
+	output = calloc(1, sizeof(struct stage_output));
+	if (output == NULL)
+		return;
 	output->curws = 0; /* TODO */
 	output->lock_presented = false;
 	output->wlr_output = wlr_output;
@@ -1963,8 +1984,11 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	xdg_toplevel = data;
 	printf("%s: app_id %s\n", __func__, xdg_toplevel->app_id);
 
-	view = malloc(sizeof(struct stage_view));
-	memset(view, 0, sizeof(struct stage_view));
+	view = calloc(1, sizeof(struct stage_view));
+	if (view == NULL) {
+		wl_resource_post_no_memory(xdg_toplevel->resource);
+		return;
+	}
 	view->type = VIEW_XDG;
 	view->server = server;
 	view->xdg_toplevel = xdg_toplevel;
@@ -2033,9 +2057,6 @@ server_new_xdg_popup(struct wl_listener *listener, void *data)
 
 	xdg_popup = data;
 
-	popup = calloc(1, sizeof(*popup));
-	popup->xdg_popup = xdg_popup;
-
 	if (xdg_popup->parent == NULL) {
 		printf("could not create popup surface, no parent\n");
 		return;
@@ -2056,6 +2077,14 @@ server_new_xdg_popup(struct wl_listener *listener, void *data)
 		printf("could not create popup surface: parent tree is NULL\n");
 		return;
 	}
+
+	/* Allocated only once the popup is known to be usable. */
+	popup = calloc(1, sizeof(*popup));
+	if (popup == NULL) {
+		wl_resource_post_no_memory(xdg_popup->resource);
+		return;
+	}
+	popup->xdg_popup = xdg_popup;
 
         xdg_popup->base->data = wlr_scene_xdg_surface_create(parent_tree,
 	    xdg_popup->base);
