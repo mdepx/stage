@@ -2168,6 +2168,12 @@ process_cursor_resize(struct stage_server *server, uint32_t time)
 		}
 	}
 
+	/* Cursor may be above or left of the view origin. */
+	if (new_w < 1)
+		new_w = 1;
+	if (new_h < 1)
+		new_h = 1;
+
 	view->w = new_w;
 	view->h = new_h;
 
