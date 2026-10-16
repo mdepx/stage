@@ -168,6 +168,7 @@ struct stage_server {
 	bool locked;
 	bool lock_pending;	/* "locked" not yet sent to active_lock */
 	struct stage_lock *active_lock;
+	struct stage_view *prelock_view;	/* focused before the lock */
 
 	struct wlr_server_decoration_manager *server_decoration_manager;
 	struct wl_listener server_decoration;
@@ -231,6 +232,8 @@ struct stage_view {
 
 static void cursor_focus(struct stage_server *server, uint32_t time);
 static void lock_cursor_focus(struct stage_server *server, uint32_t time);
+static struct stage_view *view_from_surface(struct stage_server *server,
+    struct wlr_surface *surface);
 
 static struct terminal_slot {
 	int x;
@@ -968,6 +971,17 @@ slock_unlock(struct wl_listener *listener, void *data)
 	server->locked = false;
 	server->lock_pending = false;
 	wlr_scene_node_set_enabled(&server->lock_tree->node, false);
+
+	/* Give focus back to the view that had it before the lock. */
+	wlr_seat_keyboard_notify_clear_focus(server->seat);
+	if (server->prelock_view != NULL) {
+		focus_view(server->prelock_view,
+		    view_surface(server->prelock_view));
+		server->prelock_view = NULL;
+	}
+
+	/* Pointer is still on the lock surface; move it to what's below. */
+	cursor_focus(server, 0);
 }
 
 void
@@ -1004,6 +1018,7 @@ new_lock(struct wl_listener *listener, void *data)
 	struct stage_output *output;
 	struct stage_lock *slock;
 	struct stage_server *server;
+	struct wlr_surface *surface;
 
 	server = wl_container_of(listener, server, new_lock);
 
@@ -1035,6 +1050,23 @@ new_lock(struct wl_listener *listener, void *data)
 	wl_signal_add(&lock->events.destroy, &slock->destroy);
 
 	printf("%s\n", __func__);
+
+	/*
+	 * Remember the focused view, to restore it on unlock, and
+	 * deactivate it. If we're still locked from a lock client that
+	 * died, the focus is already gone and the saved view is kept.
+	 */
+	if (!server->locked) {
+		surface = server->seat->keyboard_state.focused_surface;
+		server->prelock_view = surface != NULL ?
+		    view_from_surface(server, surface) : NULL;
+		if (server->prelock_view != NULL) {
+			wlr_xdg_toplevel_set_activated(
+			    server->prelock_view->xdg_toplevel, false);
+			view_set_borders_active(server->prelock_view, false);
+		}
+	}
+
 	/* Take input away from clients until the lock surface appears. */
 	wlr_seat_keyboard_notify_clear_focus(server->seat);
 	wlr_seat_pointer_notify_clear_focus(server->seat);
@@ -1941,6 +1973,8 @@ xdg_toplevel_unmap(struct wl_listener *listener, void *data)
 	view = wl_container_of(listener, view, unmap);
 
 	view_ungrab(view);
+	if (view->server->prelock_view == view)
+		view->server->prelock_view = NULL;
 	wl_list_remove(&view->link);
 }
 
