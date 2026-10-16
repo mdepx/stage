@@ -1736,7 +1736,7 @@ init_slots(struct wlr_output *wlr_output)
 	slots[4].h = h;
 	slots[4].flags = 0;
 
-	nslots += 5;
+	nslots = N_SLOTS;
 }
 
 static void
