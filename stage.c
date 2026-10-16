@@ -1565,12 +1565,13 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 		else
 			handled = handle_keybinding2(server, event, sym);
 
-		if (sym == XKB_KEY_Print) {
+		/* No screenshots of the lock screen. */
+		if (sym == XKB_KEY_Print && !server->locked) {
 			if (fork() == 0) {
 				execl("/bin/sh", "/bin/sh", "-c",
-				    "/usr/local/bin/slurp", "|",
-				    "/usr/local/bin/grim", "-g",
-				    "-", "-", "|", "/usr/local/bin/wl-copy",
+				    "/usr/local/bin/slurp | "
+				    "/usr/local/bin/grim -g - - | "
+				    "/usr/local/bin/wl-copy",
 				    NULL);
 				_exit(127);
 			}
