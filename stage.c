@@ -1227,27 +1227,6 @@ output_frame(struct wl_listener *listener, void *data)
 	wlr_scene_output_send_frame_done(scene_output, &now);
 }
 
-static void
-set_layout(struct stage_server *server)
-{
-	struct xkb_context *context;
-	struct xkb_rule_names rules;
-	struct xkb_keymap *keymap;
-	struct wlr_keyboard *kbd;
-
-	memset(&rules, 0, sizeof(struct xkb_rule_names));
-	rules.layout = "us,ru";
-
-	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-	kbd = wlr_seat_get_keyboard(server->seat);
-
-	keymap = xkb_keymap_new_from_names(context, &rules,
-	    XKB_KEYMAP_COMPILE_NO_FLAGS);
-
-	wlr_keyboard_set_keymap(kbd, keymap);
-	xkb_context_unref(context);
-}
-
 static int
 num_layouts(struct stage_server *server)
 {
@@ -1685,8 +1664,6 @@ server_new_keyboard(struct stage_server *server,
 	wlr_seat_set_keyboard(server->seat, kb);
 
 	wl_list_insert(&server->keyboards, &keyboard->link);
-
-	set_layout(server);
 }
 
 static void
