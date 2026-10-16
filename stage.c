@@ -151,6 +151,7 @@ struct stage_server {
 	struct wl_listener output_manager_test;
 
 	bool locked;
+	struct stage_lock *active_lock;
 
 	struct wlr_server_decoration_manager *server_decoration_manager;
 	struct wl_listener server_decoration;
@@ -854,6 +855,9 @@ slock_unlock(struct wl_listener *listener, void *data)
 	printf("%s\n", __func__);
 
 	server = slock->server;
+	if (server->active_lock != slock)
+		return;
+
 	server->locked = false;
 }
 
@@ -871,6 +875,15 @@ slock_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&slock->new_surface.link);
 	wl_list_remove(&slock->unlock.link);
 	wl_list_remove(&slock->destroy.link);
+
+	/*
+	 * If the client went away without unlocking, the session stays
+	 * locked, but a new lock client is allowed to take over.
+	 */
+	if (slock->server->active_lock == slock)
+		slock->server->active_lock = NULL;
+
+	free(slock);
 }
 
 void
@@ -884,7 +897,18 @@ new_lock(struct wl_listener *listener, void *data)
 
 	lock = data;
 
+	/* Only one lock client at a time: refuse with "finished". */
+	if (server->active_lock != NULL) {
+		printf("%s: session already locked, rejecting\n", __func__);
+		wlr_session_lock_v1_destroy(lock);
+		return;
+	}
+
 	slock = malloc(sizeof(struct stage_lock));
+	if (slock == NULL) {
+		wlr_session_lock_v1_destroy(lock);
+		return;
+	}
 	slock->lock = lock;
 	slock->server = server;
 	//lock->data = slock;
@@ -900,6 +924,7 @@ new_lock(struct wl_listener *listener, void *data)
 
 	printf("%s\n", __func__);
 	wlr_session_lock_v1_send_locked(lock);
+	server->active_lock = slock;
 	server->locked = true;
 }
 
