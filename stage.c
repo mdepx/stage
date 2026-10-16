@@ -1192,6 +1192,7 @@ changeworkspace(struct stage_server *server, int newws)
 	struct stage_output *out;
 	struct wlr_surface *surface;
 	struct wlr_seat *seat;
+	bool hidden;
 	int oldws;
 
 	out = cursor_at(server);
@@ -1203,6 +1204,7 @@ changeworkspace(struct stage_server *server, int newws)
 	out->curws = newws;
 
 	focused_view = NULL;
+	hidden = false;
 	seat = server->seat;
 	surface = seat->keyboard_state.focused_surface;
 	if (surface)
@@ -1213,10 +1215,22 @@ changeworkspace(struct stage_server *server, int newws)
 	ws = &workspaces[oldws];
 	wl_list_for_each_safe(view, tmpview, &ws->views, link) {
 		wlr_scene_node_set_enabled(&view->scene_tree->node, false);
-		if (view == focused_view)
+		if (view == focused_view) {
 			view->was_focused = true;
-		else
+			hidden = true;
+		} else
 			view->was_focused = false;
+	}
+
+	/*
+	 * Don't leave keyboard focus on a view that is now hidden,
+	 * otherwise keystrokes go to an invisible window.
+	 */
+	if (hidden) {
+		wlr_xdg_toplevel_set_activated(focused_view->xdg_toplevel,
+		    false);
+		view_set_borders_active(focused_view, false);
+		wlr_seat_keyboard_notify_clear_focus(seat);
 	}
 
 	ws = &workspaces[newws];
