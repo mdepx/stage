@@ -305,10 +305,16 @@ cursor_at(struct stage_server *server)
 	struct stage_output *out;
 
 	out = output_at(server, server->cursor->x, server->cursor->y);
+	if (out != NULL)
+		return (out);
 
-	assert(out != NULL);
+	/* Cursor is outside the layout: pick any enabled output. */
+	wl_list_for_each(out, &server->outputs, link)
+		if (out->wlr_output->enabled)
+			return (out);
 
-	return (out);
+	/* No outputs at all. */
+	return (NULL);
 }
 
 struct stage_layer_surface {
@@ -357,6 +363,8 @@ handle_surface_commit(struct wl_listener *listener, void *data)
 	surface = wl_container_of(listener, surface, surface_commit);
 	server = surface->server;
 	out = cursor_at(server);
+	if (out == NULL)
+		return;
 
 	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
 	    &full_area.height);
@@ -417,6 +425,11 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	server = wl_container_of(listener, server, new_layer_shell_surface);
 
 	out = cursor_at(server);
+	if (out == NULL) {
+		/* Nowhere to show it. */
+		wlr_layer_surface_v1_destroy(layer_surface);
+		return;
+	}
 	layer_type = layer_surface->pending.layer;
 
 	layer_surface->output = out->wlr_output;
@@ -738,13 +751,20 @@ view_align(struct stage_view *view)
 	struct wlr_output *output;
 	const char *app_id;
 
-	out = cursor_at(view->server);
-	output = out->wlr_output;
-
 	geom = view->xdg_toplevel->base->geometry;
 
 	printf("%s: view geoms %d %d %d %d\n", __func__, geom.x, geom.y,
 	    geom.width, geom.height);
+
+	out = cursor_at(view->server);
+	if (out == NULL) {
+		view->x = 0;
+		view->y = 0;
+		view->w = geom.width;
+		view->h = geom.height;
+		return;
+	}
+	output = out->wlr_output;
 
 	app_id = get_app_id(view);
 	if (app_id && strcmp(app_id, "wlroots") == 0) {
@@ -772,7 +792,7 @@ xdg_toplevel_map(struct wl_listener *listener, void *data)
 	view = wl_container_of(listener, view, map);
 
 	out = cursor_at(view->server);
-	curws = &workspaces[out->curws];
+	curws = &workspaces[out != NULL ? out->curws : 0];
 	wl_list_insert(&curws->views, &view->link);
 
 #if 0
@@ -1147,7 +1167,7 @@ changeworkspace(struct stage_server *server, int newws)
 	int oldws;
 
 	out = cursor_at(server);
-	if (out->curws == newws)
+	if (out == NULL || out->curws == newws)
 		return;
 
 	oldws = out->curws;
@@ -1315,18 +1335,20 @@ maxvert(struct stage_server *server)
 		return;
 	}
 
+	/* The view origin may be off-screen; use its center or the cursor. */
+	out = output_at(server, view->x + view->w / 2, view->y + view->h / 2);
+	if (out == NULL)
+		out = cursor_at(server);
+	if (out == NULL)
+		return;
+	output = out->wlr_output;
+
 	view->maxverted = true;
 
 	view->sx = view->x;
 	view->sy = view->y;
 	view->sw = view->w;
 	view->sh = view->h;
-
-	/* The view origin may be off-screen; use its center or the cursor. */
-	out = output_at(server, view->x + view->w / 2, view->y + view->h / 2);
-	if (out == NULL)
-		out = cursor_at(server);
-	output = out->wlr_output;
 
 	view->y = 0;
 	view->h = output->height;
@@ -1373,18 +1395,20 @@ maximize(struct stage_server *server)
 		return;
 	}
 
+	/* The view origin may be off-screen; use its center or the cursor. */
+	out = output_at(server, view->x + view->w / 2, view->y + view->h / 2);
+	if (out == NULL)
+		out = cursor_at(server);
+	if (out == NULL)
+		return;
+	output = out->wlr_output;
+
 	view->maximized = true;
 
 	view->sx = view->x;
 	view->sy = view->y;
 	view->sw = view->w;
 	view->sh = view->h;
-
-	/* The view origin may be off-screen; use its center or the cursor. */
-	out = output_at(server, view->x + view->w / 2, view->y + view->h / 2);
-	if (out == NULL)
-		out = cursor_at(server);
-	output = out->wlr_output;
 
 	view->x = 0;
 	view->y = 0;
