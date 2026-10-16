@@ -931,10 +931,11 @@ view_align(struct stage_view *view)
 
 	app_id = get_app_id(view);
 	if (app_id && strcmp(app_id, "wlroots") == 0) {
+		/* Center by the size we impose, not the client's. */
 		view->w = 1080;
 		view->h = 1240;
-		view->x = box.x + (box.width - geom.width) / 2;
-		view->y = box.y + (box.height - geom.height) / 2;
+		view->x = box.x + (box.width - view->w) / 2;
+		view->y = box.y + (box.height - view->h) / 2;
 		return;
 	}
 
