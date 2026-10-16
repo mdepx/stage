@@ -1570,7 +1570,8 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 	server = keyboard->server;
 	event = data;
 
-	kb = wlr_seat_get_keyboard(server->seat);
+	kb = keyboard->wlr_keyboard;
+	wlr_seat_set_keyboard(server->seat, kb);
 
 	keycode = event->keycode + 8;
 	nsyms = xkb_state_key_get_syms(kb->xkb_state, keycode, &syms);
@@ -1612,7 +1613,6 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 	dprintf("sym %x\n", sym);
 
 	if (!handled) {
-		wlr_seat_set_keyboard(server->seat, kb);
 		wlr_seat_keyboard_notify_key(server->seat, event->time_msec,
 		    event->keycode, event->state);
 	}
