@@ -1129,8 +1129,12 @@ socket_send(char *str)
 	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
 		return;
 
-	sendto(fd, str, strlen(str) + 1, 0, (struct sockaddr *)&addr,
-	   sizeof(struct sockaddr_un));
+	/*
+	 * Never block the compositor: if the receiver is not draining
+	 * its queue, drop the update rather than freeze.
+	 */
+	sendto(fd, str, strlen(str) + 1, MSG_DONTWAIT,
+	    (struct sockaddr *)&addr, sizeof(struct sockaddr_un));
 
 	close(fd);
 }
