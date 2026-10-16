@@ -2204,6 +2204,14 @@ handle_set_app_id(struct wl_listener *listener, void *data)
 
 	app_id = view->xdg_toplevel->app_id;
 
+	/*
+	 * Slots place new windows only. Once mapped, view_set_slot() would
+	 * change x/y/w/h behind the scene's back (and could find the view
+	 * itself occupying the slot).
+	 */
+	if (view->xdg_toplevel->base->surface->mapped)
+		return;
+
 	view_set_slot(view);
 }
 
