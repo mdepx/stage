@@ -230,6 +230,7 @@ struct stage_view {
 #endif
 
 static void cursor_focus(struct stage_server *server, uint32_t time);
+static void lock_cursor_focus(struct stage_server *server, uint32_t time);
 
 static struct terminal_slot {
 	int x;
@@ -894,6 +895,10 @@ slock_map_view(struct wl_listener *listener, void *data)
 	view = wl_container_of(listener, view, map);
 
 	lock_surface = view->lock_surface;
+
+	/* The pointer may already be resting over this surface. */
+	if (view->server->locked)
+		lock_cursor_focus(view->server, 0);
 }
 
 void
@@ -2278,6 +2283,39 @@ cursor_focus(struct stage_server *server, uint32_t time)
 		wlr_seat_pointer_clear_focus(seat);
 }
 
+/*
+ * While locked, only lock surfaces may get pointer focus: search the
+ * lock tree alone, never the views or layers below it.
+ */
+static void
+lock_cursor_focus(struct stage_server *server, uint32_t time)
+{
+	struct wlr_scene_surface *scene_surface;
+	struct wlr_scene_node *node;
+	struct wlr_seat *seat;
+	double sx, sy;
+
+	seat = server->seat;
+
+	node = wlr_scene_node_at(&server->lock_tree->node, server->cursor->x,
+	    server->cursor->y, &sx, &sy);
+	if (node == NULL || node->type != WLR_SCENE_NODE_BUFFER)
+		goto clear;	/* e.g. the lock_bg rect */
+
+	scene_surface = wlr_scene_surface_try_from_buffer(
+	    wlr_scene_buffer_from_node(node));
+	if (scene_surface == NULL)
+		goto clear;
+
+	wlr_seat_pointer_notify_enter(seat, scene_surface->surface, sx, sy);
+	wlr_seat_pointer_notify_motion(seat, time, sx, sy);
+	return;
+
+clear:
+	wlr_seat_pointer_notify_clear_focus(seat);
+	wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "left_ptr");
+}
+
 static void
 process_cursor_motion(struct stage_server *server, uint32_t time)
 {
@@ -2318,14 +2356,15 @@ server_cursor_motion(struct wl_listener *listener, void *data)
 	event = data;
 
 	server = wl_container_of(listener, server, cursor_motion);
-	if (server->locked)
-		return;
 
 	dprintf("%s: dx dy %f %f\n", __func__, event->x, event->y);
 
 	wlr_cursor_move(server->cursor, server->device, event->delta_x,
 	    event->delta_y);
-	process_cursor_motion(server, event->time_msec);
+	if (server->locked)
+		lock_cursor_focus(server, event->time_msec);
+	else
+		process_cursor_motion(server, event->time_msec);
 }
 
 static void
@@ -2337,14 +2376,15 @@ server_cursor_motion_absolute(struct wl_listener *listener, void *data)
 	event = data;
 
 	server = wl_container_of(listener, server, cursor_motion_absolute);
-	if (server->locked)
-		return;
 
 	dprintf("%s: dx dy %f %f\n", __func__, event->x, event->y);
 
 	wlr_cursor_warp_absolute(server->cursor, server->device, event->x,
 	    event->y);
-	process_cursor_motion(server, event->time_msec);
+	if (server->locked)
+		lock_cursor_focus(server, event->time_msec);
+	else
+		process_cursor_motion(server, event->time_msec);
 }
 
 static void
@@ -2357,11 +2397,19 @@ server_cursor_button(struct wl_listener *listener, void *data)
 	uint32_t mods;
 
 	server = wl_container_of(listener, server, cursor_button);
-	if (server->locked)
+	event = data;
+
+	/*
+	 * No move/resize grabs while locked. Pointer focus can only be a
+	 * lock surface (see lock_cursor_focus()), or nothing.
+	 */
+	if (server->locked) {
+		wlr_seat_pointer_notify_button(server->seat, event->time_msec,
+		    event->button, event->state);
 		return;
+	}
 
 	keyboard = wlr_seat_get_keyboard(server->seat);
-	event = data;
 
 	double sx, sy;
 	struct wlr_surface *surface;
