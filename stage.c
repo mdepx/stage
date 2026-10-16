@@ -267,6 +267,7 @@ struct stage_keyboard {
 };
 
 struct stage_popup {
+	struct stage_server *server;
 	struct wlr_xdg_popup *xdg_popup;
 	struct wl_listener commit;
 	struct wl_listener destroy;
@@ -451,6 +452,23 @@ handle_map(struct wl_listener *listener, void *data)
 	printf("%s\n", __func__);
 }
 
+/*
+ * A layer surface popup is created with no parent, and gets attached
+ * here via zwlr_layer_surface_v1.get_popup (before its initial commit).
+ */
+static void
+layer_new_popup(struct wl_listener *listener, void *data)
+{
+	struct stage_layer_surface *surface;
+	struct wlr_xdg_popup *xdg_popup;
+
+	surface = wl_container_of(listener, surface, new_popup);
+	xdg_popup = data;
+
+	xdg_popup->base->data = wlr_scene_xdg_surface_create(surface->tree,
+	    xdg_popup->base);
+}
+
 static void
 layer_shell_destroy(struct wl_listener *listener, void *data)
 {
@@ -462,6 +480,7 @@ layer_shell_destroy(struct wl_listener *listener, void *data)
 
 	wl_list_remove(&surface->surface_commit.link);
 	wl_list_remove(&surface->surface_destroy.link);
+	wl_list_remove(&surface->new_popup.link);
 	wl_list_remove(&surface->link);
 
 	/* Give back its exclusive zone. */
@@ -547,6 +566,9 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	wl_signal_add(&layer_surface->events.destroy,
 	    &surface->surface_destroy);
 
+	surface->new_popup.notify = layer_new_popup;
+	wl_signal_add(&layer_surface->events.new_popup, &surface->new_popup);
+
 #if 0
 	surface->map.notify = handle_map;
 	wl_signal_add(&layer_surface->surface->events.map, &surface->map);
@@ -557,9 +579,6 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 
 	surface->unmap.notify = handle_unmap;
 	wl_signal_add(&layer_surface->surface->events.unmap, &surface->unmap);
-
-	surface->new_popup.notify = handle_new_popup;
-	wl_signal_add(&layer_surface->events.new_popup, &surface->new_popup);
 
 	surface->output_destroy.notify = handle_output_destroy;
 	wl_signal_add(&output->events.disable, &surface->output_destroy);
@@ -2192,14 +2211,79 @@ server_new_xdg_surface(struct wl_listener *listener, void *data)
 	    &view->set_app_id);
 }
 
+/*
+ * Keep the popup on the output its root (toplevel or layer surface) is
+ * on, flipping/sliding it as its positioner allows.
+ */
+static void
+popup_unconstrain(struct stage_popup *popup)
+{
+	struct stage_layer_surface *layer;
+	struct wlr_layer_surface_v1 *ls;
+	struct wlr_scene_tree *root_tree;
+	struct wlr_xdg_surface *xs;
+	struct wlr_surface *parent;
+	struct wlr_output *output;
+	struct stage_output *out;
+	struct wlr_box geom, box;
+	int lx, ly;
+
+	root_tree = NULL;
+	output = NULL;
+	xs = NULL;
+	memset(&geom, 0, sizeof(geom));
+
+	/* Walk up the popup chain. */
+	parent = popup->xdg_popup->parent;
+	while (parent != NULL &&
+	    (xs = wlr_xdg_surface_try_from_wlr_surface(parent)) != NULL &&
+	    xs->role == WLR_XDG_SURFACE_ROLE_POPUP)
+		parent = xs->popup->parent;
+	if (parent == NULL)
+		return;
+
+	if (xs != NULL) {
+		/* Toplevel: its tree is at the window geometry origin. */
+		root_tree = xs->data;
+		geom = xs->geometry;
+	} else if ((ls = wlr_layer_surface_v1_try_from_wlr_surface(parent)) !=
+	    NULL && (layer = ls->data) != NULL) {
+		root_tree = layer->tree;
+		output = ls->output;
+	}
+	if (root_tree == NULL)
+		return;
+
+	wlr_scene_node_coords(&root_tree->node, &lx, &ly);
+
+	if (output == NULL) {
+		out = output_at(popup->server, lx + geom.width / 2,
+		    ly + geom.height / 2);
+		if (out == NULL)
+			out = cursor_at(popup->server);
+		if (out == NULL)
+			return;
+		output = out->wlr_output;
+	}
+
+	/* Output box, relative to the root surface origin. */
+	wlr_output_layout_get_box(popup->server->output_layout, output, &box);
+	box.x += geom.x - lx;
+	box.y += geom.y - ly;
+
+	wlr_xdg_popup_unconstrain_from_box(popup->xdg_popup, &box);
+}
+
 static void
 xdg_popup_commit(struct wl_listener *listener, void *data)
 {
 	struct stage_popup *popup;
 
 	popup = wl_container_of(listener, popup, commit);
-	if (popup->xdg_popup->base->initial_commit)
+	if (popup->xdg_popup->base->initial_commit) {
+		popup_unconstrain(popup);
 		wlr_xdg_surface_schedule_configure(popup->xdg_popup->base);
+	}
 }
 
 static void
@@ -2218,43 +2302,39 @@ xdg_popup_destroy(struct wl_listener *listener, void *data)
 static void
 server_new_xdg_popup(struct wl_listener *listener, void *data)
 {
+	struct wlr_scene_tree *parent_tree;
 	struct wlr_xdg_popup *xdg_popup;
 	struct wlr_xdg_surface *parent;
+	struct stage_server *server;
 	struct stage_popup *popup;
 
+	server = wl_container_of(listener, server, new_xdg_popup);
 	xdg_popup = data;
 
-	if (xdg_popup->parent == NULL) {
-		printf("could not create popup surface, no parent\n");
-		return;
-	}
-
-	parent = wlr_xdg_surface_try_from_wlr_surface(xdg_popup->parent);
-	if (!parent) {
-		printf("could not create popup surface\n");
-		return;
-	}
-
-	assert(parent != NULL);
-
-	struct wlr_scene_tree *parent_tree;
-
-	parent_tree = parent->data;
-	if (parent_tree == NULL) {
-		printf("could not create popup surface: parent tree is NULL\n");
-		return;
-	}
-
-	/* Allocated only once the popup is known to be usable. */
+	/* Every popup must be tracked, so that it gets configured. */
 	popup = calloc(1, sizeof(*popup));
 	if (popup == NULL) {
 		wl_resource_post_no_memory(xdg_popup->resource);
 		return;
 	}
+	popup->server = server;
 	popup->xdg_popup = xdg_popup;
 
-        xdg_popup->base->data = wlr_scene_xdg_surface_create(parent_tree,
-	    xdg_popup->base);
+	/*
+	 * No parent yet: a layer surface popup, attached to the scene
+	 * in layer_new_popup().
+	 */
+	if (xdg_popup->parent != NULL) {
+		parent = wlr_xdg_surface_try_from_wlr_surface(
+		    xdg_popup->parent);
+		parent_tree = parent != NULL ? parent->data : NULL;
+		if (parent_tree != NULL)
+			xdg_popup->base->data = wlr_scene_xdg_surface_create(
+			    parent_tree, xdg_popup->base);
+		else
+			printf("%s: popup parent has no scene tree\n",
+			    __func__);
+	}
 
 	popup->commit.notify = xdg_popup_commit;
 	wl_signal_add(&xdg_popup->base->surface->events.commit, &popup->commit);
