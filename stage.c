@@ -956,7 +956,6 @@ socket_send(char *str)
 {
 	struct sockaddr_un addr;
 	const char *rundir;
-	char send_msg[16];
 	int fd;
 	int n;
 
@@ -974,9 +973,7 @@ socket_send(char *str)
 	if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0)
 		return;
 
-	sprintf(send_msg, "%s", str);
-
-	sendto(fd, send_msg, strlen(send_msg) + 1, 0, (struct sockaddr *)&addr,
+	sendto(fd, str, strlen(str) + 1, 0, (struct sockaddr *)&addr,
 	   sizeof(struct sockaddr_un));
 
 	close(fd);
