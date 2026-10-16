@@ -1502,6 +1502,26 @@ handle_keybinding2(struct stage_server *server,
 	return (true);
 }
 
+/*
+ * fork() for spawning programs. SIGCHLD is blocked in the compositor
+ * (see wl_event_loop_add_signal()) and the mask survives exec, so
+ * unblock everything in the child.
+ */
+static pid_t
+stage_fork(void)
+{
+	sigset_t set;
+	pid_t pid;
+
+	pid = fork();
+	if (pid == 0) {
+		sigemptyset(&set);
+		sigprocmask(SIG_SETMASK, &set, NULL);
+	}
+
+	return (pid);
+}
+
 static void
 switch_light(char *arg)
 {
@@ -1514,7 +1534,7 @@ switch_light(char *arg)
 	if (stat(p, &st) == -1)
 		return;
 
-	pid = fork();
+	pid = stage_fork();
 	if (pid == 0) {
 		execl(p, p, "/home/br/lights/test_client.py", arg, NULL);
 		_exit(127);
@@ -1600,7 +1620,7 @@ handle_keybinding(struct stage_server *server,
 		switch_light("3");
 		break;
 	case XKB_KEY_Return:
-		if (fork() == 0) {
+		if (stage_fork() == 0) {
 			execl("/bin/sh", "/bin/sh", "-c", terminal, NULL);
 			_exit(127);
 		}
@@ -1670,7 +1690,7 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 
 		/* No screenshots of the lock screen. */
 		if (sym == XKB_KEY_Print && !server->locked) {
-			if (fork() == 0) {
+			if (stage_fork() == 0) {
 				execl("/bin/sh", "/bin/sh", "-c",
 				    "/usr/local/bin/slurp | "
 				    "/usr/local/bin/grim -g - - | "
@@ -2632,8 +2652,9 @@ global_filter(const struct wl_client *client, const struct wl_global *global,
 	return (true);
 }
 
-static void
-sig_chld(int signo)
+/* Called from the event loop, not in signal context. */
+static int
+sig_chld(int signo, void *data)
 {
 	int s;
 
@@ -2641,6 +2662,8 @@ sig_chld(int signo)
 		if (WIFEXITED(s))
 			printf("child exited\n");
 	}
+
+	return (0);
 }
 
 int
@@ -2648,16 +2671,9 @@ main(int argc, char *argv[])
 {
 	struct wl_event_loop *loop;
 	struct stage_server server;
-	struct sigaction act;
 	const char *socket;
 	int error;
 	int i;
-
-	sigemptyset(&act.sa_mask);
-	act.sa_flags = 0;
-	act.sa_handler = sig_chld;
-	if (sigaction(SIGCHLD, &act, NULL) < 0)
-		return (3);
 
 	wlr_log_init(WLR_SILENT, NULL);
 
@@ -2666,6 +2682,11 @@ main(int argc, char *argv[])
 	server.wl_disp = wl_display_create();
 
 	loop = wl_display_get_event_loop(server.wl_disp);
+
+	/* Reap children from the event loop (blocks SIGCHLD). */
+	if (wl_event_loop_add_signal(loop, SIGCHLD, sig_chld, NULL) == NULL)
+		return (3);
+
 	server.backend = wlr_backend_autocreate(loop, &server.session);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
@@ -2857,12 +2878,12 @@ main(int argc, char *argv[])
 	}
 
 	setenv("WAYLAND_DISPLAY", socket, true);
-	if (fork() == 0) {
+	if (stage_fork() == 0) {
 		execl("/bin/sh", "/bin/sh", "-c", terminal, NULL);
 		_exit(127);
 	}
 #ifndef STAGE_DEV
-	if (fork() == 0) {
+	if (stage_fork() == 0) {
 		execl("/bin/sh", "/bin/sh", "-c", ws, NULL);
 		_exit(127);
 	}
