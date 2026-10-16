@@ -1322,7 +1322,10 @@ maxvert(struct stage_server *server)
 	view->sw = view->w;
 	view->sh = view->h;
 
-	out = output_at(server, view->x, view->y);
+	/* The view origin may be off-screen; use its center or the cursor. */
+	out = output_at(server, view->x + view->w / 2, view->y + view->h / 2);
+	if (out == NULL)
+		out = cursor_at(server);
 	output = out->wlr_output;
 
 	view->y = 0;
@@ -1377,7 +1380,10 @@ maximize(struct stage_server *server)
 	view->sw = view->w;
 	view->sh = view->h;
 
-	out = output_at(server, view->x, view->y);
+	/* The view origin may be off-screen; use its center or the cursor. */
+	out = output_at(server, view->x + view->w / 2, view->y + view->h / 2);
+	if (out == NULL)
+		out = cursor_at(server);
 	output = out->wlr_output;
 
 	view->x = 0;
