@@ -140,6 +140,7 @@ struct stage_server {
 	double cur_saved_y;
 
 	int current_layout;
+	int curws;	/* shown on all outputs */
 	int oldws;
 
 	struct wlr_layer_shell_v1 *shell;
@@ -185,7 +186,6 @@ struct stage_output {
 	struct wl_listener frame;
 	struct wl_listener request_state;
 	struct wl_listener destroy;
-	int curws;
 	bool lock_presented;	/* rendered a frame since the lock */
 };
 
@@ -764,7 +764,7 @@ desktop_view_at(struct stage_server *server, double lx, double ly,
 #if 0
 	out = output_at(server, lx, ly);
 
-	ws = &workspaces[out->curws];
+	ws = &workspaces[server->curws];
 	wl_list_for_each(view, &ws->views, link) {
 		box = &view->xdg_toplevel->base->current.geometry;
 		if (wlr_box_contains_point(box, lx, ly))
@@ -854,9 +854,8 @@ view_set_slot(struct stage_view *view)
 static void
 view_align(struct stage_view *view)
 {
-	struct wlr_box geom;
+	struct wlr_box geom, box;
 	struct stage_output *out;
-	struct wlr_output *output;
 	const char *app_id;
 
 	geom = view->xdg_toplevel->base->geometry;
@@ -872,35 +871,35 @@ view_align(struct stage_view *view)
 		view->h = geom.height;
 		return;
 	}
-	output = out->wlr_output;
+	/* Layout position and scaled (effective) size of the output. */
+	wlr_output_layout_get_box(view->server->output_layout,
+	    out->wlr_output, &box);
 
 	app_id = get_app_id(view);
 	if (app_id && strcmp(app_id, "wlroots") == 0) {
 		view->w = 1080;
 		view->h = 1240;
-		view->x = (output->width - geom.width) / 2;
-		view->y = (output->height - geom.height) / 2;
+		view->x = box.x + (box.width - geom.width) / 2;
+		view->y = box.y + (box.height - geom.height) / 2;
 		return;
 	}
 
 	view->w = geom.width;
 	view->h = geom.height;
-	view->x = (output->width - geom.width) / 2;
-	view->y = (output->height - geom.height) / 2;
+	view->x = box.x + (box.width - geom.width) / 2;
+	view->y = box.y + (box.height - geom.height) / 2;
 }
 
 static void
 xdg_toplevel_map(struct wl_listener *listener, void *data)
 {
 	struct stage_workspace *curws;
-	struct stage_output *out;
 	struct stage_view *view;
 	struct wlr_box geom;
 
 	view = wl_container_of(listener, view, map);
 
-	out = cursor_at(view->server);
-	curws = &workspaces[out != NULL ? out->curws : 0];
+	curws = &workspaces[view->server->curws];
 	wl_list_insert(&curws->views, &view->link);
 
 #if 0
@@ -1315,19 +1314,17 @@ changeworkspace(struct stage_server *server, int newws)
 	struct stage_workspace *ws;
 	struct stage_view *view, *tmpview;
 	struct stage_view *focused_view;
-	struct stage_output *out;
 	struct wlr_surface *surface;
 	struct wlr_seat *seat;
 	bool hidden;
 	int oldws;
 
-	out = cursor_at(server);
-	if (out == NULL || out->curws == newws)
+	if (server->curws == newws)
 		return;
 
-	oldws = out->curws;
+	oldws = server->curws;
 	server->oldws = oldws;
-	out->curws = newws;
+	server->curws = newws;
 
 	focused_view = NULL;
 	hidden = false;
@@ -1462,7 +1459,7 @@ static void
 maxvert(struct stage_server *server)
 {
 	struct wlr_surface *surface;
-	struct wlr_output *output;
+	struct wlr_box box;
 	struct stage_output *out;
 	struct stage_view *view;
 	struct wlr_seat *seat;
@@ -1488,7 +1485,7 @@ maxvert(struct stage_server *server)
 		out = cursor_at(server);
 	if (out == NULL)
 		return;
-	output = out->wlr_output;
+	wlr_output_layout_get_box(server->output_layout, out->wlr_output, &box);
 
 	view->maxverted = true;
 
@@ -1497,8 +1494,8 @@ maxvert(struct stage_server *server)
 	view->sw = view->w;
 	view->sh = view->h;
 
-	view->y = 0;
-	view->h = output->height;
+	view->y = box.y;
+	view->h = box.height;
 
 	update_borders(view);
 	wlr_scene_node_raise_to_top(&view->scene_tree->node);
@@ -1522,7 +1519,7 @@ static void
 maximize(struct stage_server *server)
 {
 	struct wlr_surface *surface;
-	struct wlr_output *output;
+	struct wlr_box box;
 	struct stage_output *out;
 	struct stage_view *view;
 	struct wlr_seat *seat;
@@ -1548,7 +1545,7 @@ maximize(struct stage_server *server)
 		out = cursor_at(server);
 	if (out == NULL)
 		return;
-	output = out->wlr_output;
+	wlr_output_layout_get_box(server->output_layout, out->wlr_output, &box);
 
 	view->maximized = true;
 
@@ -1557,10 +1554,10 @@ maximize(struct stage_server *server)
 	view->sw = view->w;
 	view->sh = view->h;
 
-	view->x = 0;
-	view->y = 0;
-	view->w = output->width;
-	view->h = output->height;
+	view->x = box.x;
+	view->y = box.y;
+	view->w = box.width;
+	view->h = box.height;
 
 	update_borders(view);
 	wlr_scene_node_raise_to_top(&view->scene_tree->node);
@@ -2042,7 +2039,6 @@ server_new_output(struct wl_listener *listener, void *data)
 	output = calloc(1, sizeof(struct stage_output));
 	if (output == NULL)
 		return;
-	output->curws = 0; /* TODO */
 	output->lock_presented = false;
 	output->wlr_output = wlr_output;
 	wlr_output->data = output;
