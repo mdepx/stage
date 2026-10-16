@@ -144,6 +144,7 @@ struct stage_server {
 
 	struct wlr_layer_shell_v1 *shell;
 	struct wl_listener new_layer_shell_surface;
+	struct wl_list layer_surfaces;	/* stage_layer_surface::link */
 
 	struct wlr_input_inhibit_manager *inhibit_manager;
 	struct wlr_session_lock_manager_v1 *lock;
@@ -324,6 +325,7 @@ cursor_at(struct stage_server *server)
 }
 
 struct stage_layer_surface {
+	struct wl_list link;		/* stage_server::layer_surfaces */
 	struct wl_listener map;
 	struct wl_listener unmap;
 	struct wl_listener surface_commit;
@@ -335,6 +337,7 @@ struct stage_layer_surface {
 	struct wlr_scene_tree *tree;
 	struct wlr_layer_surface_v1 *layer_surface;
 	struct stage_server *server;
+	bool mapped;			/* as of the last arrange */
 };
 
 static struct stage_layer_surface *
@@ -358,27 +361,87 @@ stage_layer_surface_create(struct wlr_scene_layer_surface_v1 *scene)
  * Layer surface.
  */
 
+static struct wlr_scene_tree *
+layer_tree(struct stage_server *server, enum zwlr_layer_shell_v1_layer layer)
+{
+
+	switch (layer) {
+	case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
+	case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
+		return (server->layer_bottom);
+	default:
+		return (server->layer_top);
+	}
+}
+
+/*
+ * Position and configure every layer surface on the output, honouring
+ * anchors, margins, desired size and exclusive zones.
+ */
+static void
+arrange_layers(struct stage_server *server, struct wlr_output *output)
+{
+	struct stage_layer_surface *surface;
+	struct wlr_layer_surface_v1 *ls;
+	struct wlr_box full, usable;
+	bool exclusive;
+	int pass;
+
+	wlr_output_layout_get_box(server->output_layout, output, &full);
+	if (wlr_box_empty(&full))
+		return;
+	usable = full;
+
+	/* Exclusive surfaces first, so that the rest get what's left. */
+	for (pass = 0; pass < 2; pass++) {
+		wl_list_for_each(surface, &server->layer_surfaces, link) {
+			ls = surface->layer_surface;
+			if (ls->output != output || !ls->initialized)
+				continue;
+			exclusive = ls->surface->mapped &&
+			    ls->current.exclusive_zone > 0;
+			if (exclusive != (pass == 0))
+				continue;
+			wlr_scene_layer_surface_v1_configure(surface->scene,
+			    &full, &usable);
+		}
+	}
+}
+
+static void
+arrange_all_layers(struct stage_server *server)
+{
+	struct stage_output *out;
+
+	wl_list_for_each(out, &server->outputs, link)
+		arrange_layers(server, out->wlr_output);
+}
+
 static void
 handle_surface_commit(struct wl_listener *listener, void *data)
 {
 	struct stage_layer_surface *surface;
-	struct wlr_box full_area;
-	struct stage_output *out;
+	struct wlr_layer_surface_v1 *ls;
 	struct stage_server *server;
-
-	printf("%s\n", __func__);
 
 	surface = wl_container_of(listener, surface, surface_commit);
 	server = surface->server;
-	out = cursor_at(server);
-	if (out == NULL)
-		return;
+	ls = surface->layer_surface;
 
-	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
-	    &full_area.height);
+	/* Moving between layers. */
+	if (ls->current.committed & WLR_LAYER_SURFACE_V1_STATE_LAYER)
+		wlr_scene_node_reparent(&surface->tree->node,
+		    layer_tree(server, ls->current.layer));
 
-	wlr_layer_surface_v1_configure(surface->layer_surface, full_area.width,
-	    full_area.height);
+	/*
+	 * Only rearrange on a real change. Configuring on every commit
+	 * makes the client ack and commit again, forever.
+	 */
+	if (ls->initial_commit || ls->current.committed != 0 ||
+	    ls->surface->mapped != surface->mapped) {
+		surface->mapped = ls->surface->mapped;
+		arrange_layers(server, ls->output);
+	}
 }
 
 static void
@@ -399,6 +462,11 @@ layer_shell_destroy(struct wl_listener *listener, void *data)
 
 	wl_list_remove(&surface->surface_commit.link);
 	wl_list_remove(&surface->surface_destroy.link);
+	wl_list_remove(&surface->link);
+
+	/* Give back its exclusive zone. */
+	if (surface->layer_surface->output != NULL)
+		arrange_layers(surface->server, surface->layer_surface->output);
 
 	free(surface);
 }
@@ -414,7 +482,6 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	struct wlr_output *output;
 	struct stage_server *server;
 	struct stage_output *out;
-	struct wlr_box full_area;
 
 	dprintf("%s\n", __func__);
 
@@ -434,7 +501,11 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 
 	server = wl_container_of(listener, server, new_layer_shell_surface);
 
-	out = cursor_at(server);
+	/* Use the output the client asked for, else the cursor's. */
+	if (layer_surface->output != NULL)
+		out = layer_surface->output->data;
+	else
+		out = cursor_at(server);
 	if (out == NULL) {
 		/* Nowhere to show it. */
 		wlr_layer_surface_v1_destroy(layer_surface);
@@ -444,18 +515,7 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 
 	layer_surface->output = out->wlr_output;
 
-	wlr_output_effective_resolution(out->wlr_output, &full_area.width,
-	    &full_area.height);
-
-	switch (layer_type) {
-	case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
-	case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
-		output_layer = server->layer_bottom;
-		break;
-	default:
-		output_layer = server->layer_top;
-		break;
-	}
+	output_layer = layer_tree(server, layer_type);
 
 	scene_surface = wlr_scene_layer_surface_v1_create(output_layer,
 	    layer_surface);
@@ -475,11 +535,16 @@ new_layer_shell_surface(struct wl_listener *listener, void *data)
 	    ceil(layer_surface->output->scale));
 
 	surface->server = server;
+	wl_list_insert(&server->layer_surfaces, &surface->link);
 	surface->surface_commit.notify = handle_surface_commit;
 	wl_signal_add(&layer_surface->surface->events.commit,
 	    &surface->surface_commit);
+	/*
+	 * The layer surface role object, not the wl_surface: the role can
+	 * be destroyed (e.g. by us, on output removal) on its own.
+	 */
 	surface->surface_destroy.notify = layer_shell_destroy;
-	wl_signal_add(&layer_surface->surface->events.destroy,
+	wl_signal_add(&layer_surface->events.destroy,
 	    &surface->surface_destroy);
 
 #if 0
@@ -1110,6 +1175,9 @@ layout_change(struct wl_listener *listener, void *data)
 	/* Keep new or moved outputs blanked while locked. */
 	if (server->locked)
 		lock_bg_update(server);
+
+	/* Outputs moved, resized or were added. */
+	arrange_all_layers(server);
 }
 
 void
@@ -1882,6 +1950,7 @@ static void
 output_destroy(struct wl_listener *listener, void *data)
 {
 	const struct wlr_output_event_destroy *event;
+	struct stage_layer_surface *ls, *tmp;
 	struct stage_output *output;
 
 	printf("%s\n", __func__);
@@ -1894,6 +1963,13 @@ output_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&output->request_state.link);
 	wl_list_remove(&output->destroy.link);
 	wl_list_remove(&output->link);
+
+	/* Close layer surfaces that lived on this output. */
+	wl_list_for_each_safe(ls, tmp, &output->server->layer_surfaces, link)
+		if (ls->layer_surface->output == output->wlr_output) {
+			ls->layer_surface->output = NULL;
+			wlr_layer_surface_v1_destroy(ls->layer_surface);
+		}
 
 	/* A pending lock may have been waiting only on this output. */
 	lock_check_presented(output->server);
@@ -2842,6 +2918,7 @@ main(int argc, char *argv[])
 	server.new_lock.notify = new_lock;
 	wl_signal_add(&server.lock->events.new_lock, &server.new_lock);
 
+	wl_list_init(&server.layer_surfaces);
 	server.shell = wlr_layer_shell_v1_create(server.wl_disp, 4);
 	add_privileged(&server, server.shell->global);
 	server.new_layer_shell_surface.notify = new_layer_shell_surface;
