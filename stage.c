@@ -56,6 +56,7 @@
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_seat.h>
+#include <wlr/types/wlr_security_context_v1.h>
 #include <wlr/types/wlr_server_decoration.h>
 #include <wlr/types/wlr_session_lock_v1.h>
 #include <wlr/types/wlr_subcompositor.h>
@@ -153,6 +154,12 @@ struct stage_server {
 	struct wl_listener layout_change;
 
 	struct wlr_output_manager_v1 *output_manager;
+
+	/* Globals hidden from sandboxed clients. */
+	struct wlr_security_context_manager_v1 *security_context;
+#define	N_PRIVILEGED	16
+	const struct wl_global *privileged[N_PRIVILEGED];
+	int nprivileged;
 	struct wl_listener output_manager_apply;
 	struct wl_listener output_manager_test;
 
@@ -2429,6 +2436,37 @@ handle_xdg_decoration(struct wl_listener *listener, void *data)
 }
 
 static void
+add_privileged(struct stage_server *server, const struct wl_global *global)
+{
+
+	assert(server->nprivileged < N_PRIVILEGED);
+
+	server->privileged[server->nprivileged++] = global;
+}
+
+static bool
+global_filter(const struct wl_client *client, const struct wl_global *global,
+    void *data)
+{
+	const struct wlr_security_context_v1_state *ctx;
+	struct stage_server *server;
+	int i;
+
+	server = data;
+
+	ctx = wlr_security_context_manager_v1_lookup_client(
+	    server->security_context, (struct wl_client *)client);
+	if (ctx == NULL)
+		return (true);	/* Not sandboxed. */
+
+	for (i = 0; i < server->nprivileged; i++)
+		if (server->privileged[i] == global)
+			return (false);
+
+	return (true);
+}
+
+static void
 sig_chld(int signo)
 {
 	int s;
@@ -2474,11 +2512,15 @@ main(int argc, char *argv[])
 #if 0
 	wlr_text_input_manager_v3_create(server.wl_disp);
 #endif
-	wlr_export_dmabuf_manager_v1_create(server.wl_disp);
-	wlr_screencopy_manager_v1_create(server.wl_disp);
-	wlr_data_control_manager_v1_create(server.wl_disp);
+	add_privileged(&server,
+	    wlr_export_dmabuf_manager_v1_create(server.wl_disp)->global);
+	add_privileged(&server,
+	    wlr_screencopy_manager_v1_create(server.wl_disp)->global);
+	add_privileged(&server,
+	    wlr_data_control_manager_v1_create(server.wl_disp)->global);
 	wlr_data_device_manager_create(server.wl_disp);
-	wlr_gamma_control_manager_v1_create(server.wl_disp);
+	add_privileged(&server,
+	    wlr_gamma_control_manager_v1_create(server.wl_disp)->global);
 	wlr_primary_selection_v1_device_manager_create(server.wl_disp);
 	wlr_viewporter_create(server.wl_disp);
 	wlr_subcompositor_create(server.wl_disp);
@@ -2526,6 +2568,7 @@ main(int argc, char *argv[])
 	    &server.new_xdg_popup);
 
 	server.output_manager = wlr_output_manager_v1_create(server.wl_disp);
+	add_privileged(&server, server.output_manager->global);
 	server.output_manager_apply.notify = output_manager_apply;
 	wl_signal_add(&server.output_manager->events.apply,
 	    &server.output_manager_apply);
@@ -2540,7 +2583,8 @@ main(int argc, char *argv[])
 	wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
 
 #if 1
-	wlr_virtual_keyboard_manager_v1_create(server.wl_disp);
+	add_privileged(&server,
+	    wlr_virtual_keyboard_manager_v1_create(server.wl_disp)->global);
 #endif
 
 	server.cursor_mgr = wlr_xcursor_manager_create("Adwaita", 40);
@@ -2607,10 +2651,12 @@ main(int argc, char *argv[])
 	server.xdg_decoration.notify = handle_xdg_decoration;
 
 	server.lock = wlr_session_lock_manager_v1_create(server.wl_disp);
+	add_privileged(&server, server.lock->global);
 	server.new_lock.notify = new_lock;
 	wl_signal_add(&server.lock->events.new_lock, &server.new_lock);
 
 	server.shell = wlr_layer_shell_v1_create(server.wl_disp, 4);
+	add_privileged(&server, server.shell->global);
 	server.new_layer_shell_surface.notify = new_layer_shell_surface;
 	wl_signal_add(&server.shell->events.new_surface,
 	    &server.new_layer_shell_surface);
@@ -2620,6 +2666,16 @@ main(int argc, char *argv[])
 	    wlr_input_inhibit_manager_create(server.wl_disp);
 	server.idle = wlr_idle_create(server.wl_disp);
 #endif
+
+	/*
+	 * Sandboxed clients (e.g. Flatpak) register a security context;
+	 * hide the privileged globals from them. Nested contexts are
+	 * not allowed either.
+	 */
+	server.security_context =
+	    wlr_security_context_manager_v1_create(server.wl_disp);
+	add_privileged(&server, server.security_context->global);
+	wl_display_set_global_filter(server.wl_disp, global_filter, &server);
 
 	socket = wl_display_add_socket_auto(server.wl_disp);
 	if (socket == NULL) {
