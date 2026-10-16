@@ -101,6 +101,7 @@ struct stage_server {
 	struct wlr_scene_tree *view_tree;	/* toplevels */
 	struct wlr_scene_tree *layer_top;	/* top, overlay layers */
 	struct wlr_scene_tree *lock_tree;	/* session lock surfaces */
+	struct wlr_scene_rect *lock_bg;		/* blanks outputs while locked */
 	struct wlr_presentation *presentation;
 	struct wl_listener new_output;
 	struct wl_listener new_xdg_surface;
@@ -156,6 +157,7 @@ struct stage_server {
 	struct wl_listener output_manager_test;
 
 	bool locked;
+	bool lock_pending;	/* "locked" not yet sent to active_lock */
 	struct stage_lock *active_lock;
 
 	struct wlr_server_decoration_manager *server_decoration_manager;
@@ -173,6 +175,7 @@ struct stage_output {
 	struct wl_listener request_state;
 	struct wl_listener destroy;
 	int curws;
+	bool lock_presented;	/* rendered a frame since the lock */
 };
 
 enum stage_view_type {
@@ -787,6 +790,34 @@ xdg_toplevel_map(struct wl_listener *listener, void *data)
 	focus_view(view, view_surface(view));
 }
 
+static void
+lock_bg_update(struct stage_server *server)
+{
+	struct wlr_box box;
+
+	/* Cover the whole output layout. */
+	wlr_output_layout_get_box(server->output_layout, NULL, &box);
+	wlr_scene_node_set_position(&server->lock_bg->node, box.x, box.y);
+	wlr_scene_rect_set_size(server->lock_bg, box.width, box.height);
+}
+
+static void
+lock_check_presented(struct stage_server *server)
+{
+	struct stage_output *output;
+
+	if (!server->lock_pending || server->active_lock == NULL)
+		return;
+
+	wl_list_for_each(output, &server->outputs, link) {
+		if (output->wlr_output->enabled && !output->lock_presented)
+			return;
+	}
+
+	server->lock_pending = false;
+	wlr_session_lock_v1_send_locked(server->active_lock->lock);
+}
+
 void
 slock_destroy_view(struct wl_listener *listener, void *data)
 {
@@ -823,8 +854,10 @@ slock_new_surface(struct wl_listener *listener, void *data)
 	struct stage_server *server;
 	struct stage_lock *slock;
 	struct stage_view *view;
-	struct wlr_scene_surface *surface;
+	struct wlr_scene_tree *tree;
 	struct wlr_session_lock_v1 *lock;
+	struct wlr_output *output;
+	struct wlr_box box;
 
 	printf("%s\n", __func__);
 
@@ -844,18 +877,17 @@ slock_new_surface(struct wl_listener *listener, void *data)
 	view->destroy.notify = slock_destroy_view;
 	wl_signal_add(&lock_surface->events.destroy, &view->destroy);
 
-	/* TODO: destroy surface when not needed? */
-	surface = wlr_scene_surface_create(server->lock_tree,
+	/* Destroyed together with the surface. */
+	tree = wlr_scene_subsurface_tree_create(server->lock_tree,
 	    lock_surface->surface);
 	view->scene_tree = NULL;
-	view->lock_surface->data = surface;
+	view->lock_surface->data = tree;
 
-	struct wlr_output *output;
-	struct stage_output *out;
-	out = cursor_at(server);
-	output = out->wlr_output;
-	view->w = output->width;
-	view->h = output->height;
+	/* Place the lock surface on its own output. */
+	output = lock_surface->output;
+	wlr_output_layout_get_box(server->output_layout, output, &box);
+	wlr_scene_node_set_position(&tree->node, box.x, box.y);
+	wlr_output_effective_resolution(output, &view->w, &view->h);
 	wlr_session_lock_surface_v1_configure(lock_surface, view->w, view->h);
 
 	focus_view(view, view_surface(view));
@@ -876,6 +908,8 @@ slock_unlock(struct wl_listener *listener, void *data)
 		return;
 
 	server->locked = false;
+	server->lock_pending = false;
+	wlr_scene_node_set_enabled(&server->lock_tree->node, false);
 }
 
 void
@@ -897,8 +931,10 @@ slock_destroy(struct wl_listener *listener, void *data)
 	 * If the client went away without unlocking, the session stays
 	 * locked, but a new lock client is allowed to take over.
 	 */
-	if (slock->server->active_lock == slock)
+	if (slock->server->active_lock == slock) {
 		slock->server->active_lock = NULL;
+		slock->server->lock_pending = false;
+	}
 
 	free(slock);
 }
@@ -907,6 +943,7 @@ void
 new_lock(struct wl_listener *listener, void *data)
 {
 	struct wlr_session_lock_v1 *lock;
+	struct stage_output *output;
 	struct stage_lock *slock;
 	struct stage_server *server;
 
@@ -946,9 +983,22 @@ new_lock(struct wl_listener *listener, void *data)
 	server->cursor_mode = STAGE_CURSOR_PASSTHROUGH;
 	server->grabbed_view = NULL;
 
-	wlr_session_lock_v1_send_locked(lock);
 	server->active_lock = slock;
 	server->locked = true;
+
+	/*
+	 * Blank all outputs. The black background stays even if the lock
+	 * client dies, until a lock client unlocks the session.
+	 */
+	lock_bg_update(server);
+	wlr_scene_node_set_enabled(&server->lock_tree->node, true);
+	wlr_scene_node_raise_to_top(&server->lock_tree->node);
+
+	/* Send "locked" once every output has shown the blanked frame. */
+	wl_list_for_each(output, &server->outputs, link)
+		output->lock_presented = false;
+	server->lock_pending = true;
+	lock_check_presented(server);
 }
 
 void
@@ -961,8 +1011,15 @@ request_activate(struct wl_listener *listener, void *data)
 void
 layout_change(struct wl_listener *listener, void *data)
 {
+	struct stage_server *server;
 
 	printf("%s\n", __func__);
+
+	server = wl_container_of(listener, server, layout_change);
+
+	/* Keep new or moved outputs blanked while locked. */
+	if (server->locked)
+		lock_bg_update(server);
 }
 
 void
@@ -1133,6 +1190,11 @@ output_frame(struct wl_listener *listener, void *data)
 	scene = output->server->scene;
 	scene_output = wlr_scene_get_scene_output(scene, output->wlr_output);
 	wlr_scene_output_commit(scene_output, NULL);
+
+	if (output->server->lock_pending) {
+		output->lock_presented = true;
+		lock_check_presented(output->server);
+	}
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	wlr_scene_output_send_frame_done(scene_output, &now);
@@ -1695,6 +1757,16 @@ output_destroy(struct wl_listener *listener, void *data)
 	output = wl_container_of(listener, output, destroy);
 
 	event = data;
+
+	wl_list_remove(&output->frame.link);
+	wl_list_remove(&output->request_state.link);
+	wl_list_remove(&output->destroy.link);
+	wl_list_remove(&output->link);
+
+	/* A pending lock may have been waiting only on this output. */
+	lock_check_presented(output->server);
+
+	free(output);
 }
 
 static void
@@ -1742,6 +1814,7 @@ server_new_output(struct wl_listener *listener, void *data)
 
 	output = malloc(sizeof(struct stage_output));
 	output->curws = 0; /* TODO */
+	output->lock_presented = false;
 	output->wlr_output = wlr_output;
 	wlr_output->data = output;
 	output->server = server;
@@ -2434,6 +2507,9 @@ main(int argc, char *argv[])
 	server.view_tree = wlr_scene_tree_create(&server.scene->tree);
 	server.layer_top = wlr_scene_tree_create(&server.scene->tree);
 	server.lock_tree = wlr_scene_tree_create(&server.scene->tree);
+	server.lock_bg = wlr_scene_rect_create(server.lock_tree, 0, 0,
+	    (float[4]){ 0.0f, 0.0f, 0.0f, 1.0f });
+	wlr_scene_node_set_enabled(&server.lock_tree->node, false);
 
 #if 0
 	struct wlr_scene_tree *tree;
