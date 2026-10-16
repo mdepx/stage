@@ -33,6 +33,7 @@
 #include <linux/input-event-codes.h>
 #include <wlr/backend.h>
 #include <wlr/backend/libinput.h>
+#include <wlr/backend/session.h>
 #include <wlr/interfaces/wlr_keyboard.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>
@@ -94,6 +95,7 @@ enum stage_cursor_mode {
 struct stage_server {
 	struct wl_display *wl_disp;
 	struct wlr_backend *backend;
+	struct wlr_session *session;	/* NULL when nested */
 	struct wlr_renderer *renderer;
 	struct wlr_allocator *allocator;
 	struct wlr_scene *scene;
@@ -1605,6 +1607,18 @@ keyboard_handle_key(struct wl_listener *listener, void *data)
 
 	handled = false;
 
+	/*
+	 * VT switch (Ctrl+Alt+Fn). Allowed even while locked, so that the
+	 * user can recover if the lock client dies.
+	 */
+	if (sym >= XKB_KEY_XF86Switch_VT_1 && sym <= XKB_KEY_XF86Switch_VT_12) {
+		if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED &&
+		    server->session != NULL)
+			wlr_session_change_vt(server->session,
+			    sym - XKB_KEY_XF86Switch_VT_1 + 1);
+		return;
+	}
+
 	mods = wlr_keyboard_get_modifiers(kb);
 	if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		dprintf("%s: nsyms %d mods %x\n", __func__, nsyms, mods);
@@ -2570,7 +2584,7 @@ main(int argc, char *argv[])
 	server.wl_disp = wl_display_create();
 
 	loop = wl_display_get_event_loop(server.wl_disp);
-	server.backend = wlr_backend_autocreate(loop, 0);
+	server.backend = wlr_backend_autocreate(loop, &server.session);
 	server.renderer = wlr_renderer_autocreate(server.backend);
 	wlr_renderer_init_wl_display(server.renderer, server.wl_disp);
 
